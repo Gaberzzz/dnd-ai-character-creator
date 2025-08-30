@@ -2,6 +2,106 @@ import { useState } from 'react';
 import { Download, FileText, Wand2, Upload, Eye, EyeOff } from 'lucide-react';
 import { PDFDocument } from 'pdf-lib';
 
+
+// ✅ Use these corrected maps in your component's scope.
+
+const pdfFieldMap: Record<string, keyof CharacterData> = {
+    CharacterName: "characterName",
+    PlayerName: "playerName",
+    "Race ": "race",
+    ClassLevel: "classAndLevel",
+    Background: "background",
+    Alignment: "alignment",
+    XP: "experiencePoints",
+    STR: "strength",
+    DEX: "dexterity",
+    CON: "constitution",
+    INT: "intelligence",
+    WIS: "wisdom",
+    CHA: "charisma",
+    AC: "armorClass",
+    Initiative: "initiative",
+    Speed: "speed",
+    HPMax: "hitPointMaximum",
+    HPCurrent: "currentHitPoints",
+    HPTemp: "temporaryHitPoints",
+    HDTotal: "hitDice", // Corrected from HitDice to HDTotal
+    ProfBonus: "proficiencyBonus",
+    "PersonalityTraits ": "personalityTraits",
+    Ideals: "ideals",
+    Bonds: "bonds",
+    Flaws: "flaws",
+    "Features and Traits": "featuresAndTraits",
+    Equipment: "equipment",
+    CP: "cp",
+    SP: "sp",
+    EP: "ep",
+    GP: "gp",
+    PP: "pp",
+};
+
+const savingThrowTextFields: Record<string, string> = {
+    strength: "ST Strength",
+    dexterity: "ST Dexterity",
+    constitution: "ST Constitution",
+    intelligence: "ST Intelligence",
+    wisdom: "ST Wisdom",
+    charisma: "ST Charisma",
+};
+
+const savingThrowBoxes: Record<string, string> = {
+    strength: "Check Box 11",
+    dexterity: "Check Box 12",
+    constitution: "Check Box 14",
+    intelligence: "Check Box 15",
+    wisdom: "Check Box 16",
+    charisma: "Check Box 17",
+};
+
+const skillTextFields: Record<string, string> = {
+    athletics: "Athletics",
+    acrobatics: "Acrobatics", 
+    sleightOfHand: "SleightofHand",
+    "stealth ": "Stealth", // Note: this key has trailing space
+    arcana: "Arcana",
+    "history ": "History", // Note: this key has trailing space  
+    "investigation ": "Investigation", // Note: this key has trailing space
+    nature: "Nature",
+    religion: "Religion",
+    animalHandling: "Animal",
+    insight: "Insight", 
+    medicine: "Medicine",
+    "perception ": "Perception", // Note: this key has trailing space
+    survival: "Survival",
+    "deception ": "Deception", // Note: this key has trailing space, but PDF field is "Deception"
+    intimidation: "Intimidation",
+    performance: "Performance", 
+    persuasion: "Persuasion"
+};
+
+const skillProficiencyBoxes: Record<keyof CharacterData["skills"], string> = {
+    acrobatics: "Check Box 22",
+    animalHandling: "Check Box 23",
+    arcana: "Check Box 24",
+    athletics: "Check Box 25",
+    deception: "Check Box 26",
+    history: "Check Box 27",
+    insight: "Check Box 28",
+    intimidation: "Check Box 29",
+    investigation: "Check Box 30",
+    medicine: "Check Box 31",
+    nature: "Check Box 32",
+    perception: "Check Box 33",
+    performance: "Check Box 34",
+    persuasion: "Check Box 35",
+    religion: "Check Box 36",
+    sleightOfHand: "Check Box 37",
+    stealth: "Check Box 38",
+    survival: "Check Box 39",
+};
+
+
+
 interface CharacterData {
     characterName: string;
     playerName: string;
@@ -11,11 +111,17 @@ interface CharacterData {
     alignment: string;
     experiencePoints: string;
     strength: string;
+    strengthMod: string; // <-- ADD THIS
     dexterity: string;
+    dexterityMod: string; // <-- ADD THIS
     constitution: string;
+    constitutionMod: string; // <-- ADD THIS
     intelligence: string;
+    intelligenceMod: string; // <-- ADD THIS
     wisdom: string;
+    wisdomMod: string; // <-- ADD THIS
     charisma: string;
+    charismaMod: string; // <-- ADD THIS
     armorClass: string;
     initiative: string;
     speed: string;
@@ -33,10 +139,10 @@ interface CharacterData {
     attacks: Array<{
         name: string;
         atkBonus: string;
-        damageType: string;
+        damage: string; // <-- RENAME for clarity (damageType -> damage)
     }>;
-    skills: { [key: string]: boolean };
-    savingThrows: { [key: string]: boolean };
+    skills: { [key: string]: { proficient: boolean, value: string } }; // <-- UPDATE skills structure
+    savingThrows: { [key: string]: { proficient: boolean, value: string } }; // <-- UPDATE saving throws
     cp: string;
     sp: string;
     ep: string;
@@ -75,11 +181,17 @@ Please return ONLY a JSON object with these exact field names and appropriate va
   "alignment": "string",
   "experiencePoints": "string",
   "strength": "string (ability score 8-20)",
-  "dexterity": "string (ability score 8-20)", 
+  "strengthMod": "string (e.g., '+1')",
+  "dexterity": "string (ability score 8-20)",
+  "dexterityMod": "string (e.g., '+2')",
   "constitution": "string (ability score 8-20)",
+  "constitutionMod": "string (e.g., '+2')",
   "intelligence": "string (ability score 8-20)",
+  "intelligenceMod": "string (e.g., '+1')",
   "wisdom": "string (ability score 8-20)",
+  "wisdomMod": "string (e.g., '+2')", 
   "charisma": "string (ability score 8-20)",
+  "charismaMod": "string (e.g., '+0')",
   "armorClass": "string",
   "initiative": "string (with + or -)",
   "speed": "string (e.g., '30 ft')",
@@ -98,36 +210,36 @@ Please return ONLY a JSON object with these exact field names and appropriate va
     {
       "name": "string",
       "atkBonus": "string (with + or -)",
-      "damageType": "string"
+      "damage": "string (e.g., '1d8 + 2 piercing')" 
     }
   ],
   "skills": {
-    "athletics": false,
-    "acrobatics": false,
-    "sleightOfHand": false,
-    "stealth": false,
-    "arcana": false,
-    "history": false,
-    "investigation": false,
-    "nature": false,
-    "religion": false,
-    "animalHandling": false,
-    "insight": false,
-    "medicine": false,
-    "perception": false,
-    "survival": false,
-    "deception": false,
-    "intimidation": false,
-    "performance": false,
-    "persuasion": false
+    "athletics": { "proficient": false, "value": "+0" },
+    "acrobatics": { "proficient": false, "value": "+0" },
+    "sleightOfHand": { "proficient": false, "value": "+0" },
+    "stealth": { "proficient": false, "value": "+0" },
+    "arcana": { "proficient": false, "value": "+0" },
+    "history": { "proficient": false, "value": "+0" },
+    "investigation": { "proficient": false, "value": "+0" },
+    "nature": { "proficient": false, "value": "+0" },
+    "religion": { "proficient": false, "value": "+0" },
+    "animalHandling": { "proficient": false, "value": "+0" },
+    "insight": { "proficient": false, "value": "+0" },
+    "medicine": { "proficient": false, "value": "+0" },
+    "perception": { "proficient": false, "value": "+0" },
+    "survival": { "proficient": false, "value": "+0" },
+    "deception ": { "proficient": false, "value": "+0" },
+    "intimidation": { "proficient": false, "value": "+0" },
+    "performance": { "proficient": false, "value": "+0" },
+    "persuasion": { "proficient": false, "value": "+0" }
   },
   "savingThrows": {
-    "strength": false,
-    "dexterity": false,
-    "constitution": false,
-    "intelligence": false,
-    "wisdom": false,
-    "charisma": false
+    "strength": { "proficient": false, "value": "+0" },
+    "dexterity": { "proficient": false, "value": "+0" },
+    "constitution": { "proficient": false, "value": "+0" },
+    "intelligence": { "proficient": false, "value": "+0" },
+    "wisdom": { "proficient": false, "value": "+0" },
+    "charisma": { "proficient": false, "value": "+0" }
   },
   "cp": "0",
   "sp": "0",
@@ -150,6 +262,9 @@ Make the character mechanically sound according to D&D 5e rules and thematically
 
             const data = await response.json();
             const content = data.choices[0].message.content;
+
+            // Add logging here
+            console.log('AI Response:', content);
 
             // Extract JSON from the response
             const jsonMatch = content.match(/\{[\s\S]*\}/);
@@ -177,10 +292,9 @@ Make the character mechanically sound according to D&D 5e rules and thematically
             alert('Please upload a PDF file');
         }
     };
-
     const fillPDF = async () => {
         if (!characterData || !pdfFile) {
-            alert('Please generate character data and upload a PDF first');
+            alert("Please generate character data and upload a PDF first");
             return;
         }
 
@@ -189,74 +303,88 @@ Make the character mechanically sound according to D&D 5e rules and thematically
             const pdfDoc = await PDFDocument.load(pdfBytes);
             const form = pdfDoc.getForm();
 
-            // Helper function to safely set form field
-            const setField = (fieldName: string, value: string) => {
+            const setField = (fieldName: string, value: string | undefined) => {
+                if (value === undefined || String(value).trim() === "") return;
                 try {
-                    const field = form.getTextField(fieldName);
-                    field.setText(value);
-                } catch (error) {
-                    console.warn(`Field ${fieldName} not found or couldn't be set`);
+                    form.getTextField(fieldName).setText(String(value));
+                } catch {
+                    console.warn(`Text field "${fieldName}" not found or failed to set.`);
                 }
             };
 
-            // Fill basic info
-            setField('CharacterName', characterData.characterName);
-            setField('PlayerName', characterData.playerName);
-            setField('Race', characterData.race);
-            setField('ClassLevel', characterData.classAndLevel);
-            setField('Background', characterData.background);
-            setField('Alignment', characterData.alignment);
-            setField('ExperiencePoints', characterData.experiencePoints);
+            // Fill basic fields from the map
+            for (const [pdfField, dataKey] of Object.entries(pdfFieldMap)) {
+                const value = characterData[dataKey as keyof CharacterData] as string;
+                setField(pdfField, value);
+            }
 
-            // Fill ability scores
-            setField('STR', characterData.strength);
-            setField('DEX', characterData.dexterity);
-            setField('CON', characterData.constitution);
-            setField('INT', characterData.intelligence);
-            setField('WIS', characterData.wisdom);
-            setField('CHA', characterData.charisma);
+            // Fill ability score modifiers
+            setField("STRmod", characterData.strengthMod);
+            setField("DEXmod ", characterData.dexterityMod);
+            setField("CONmod", characterData.constitutionMod);
+            setField("INTmod", characterData.intelligenceMod);
+            setField("WISmod", characterData.wisdomMod);
+            setField("CHamod", characterData.charismaMod);
 
-            // Fill combat stats
-            setField('AC', characterData.armorClass);
-            setField('Initiative', characterData.initiative);
-            setField('Speed', characterData.speed);
-            setField('HPMax', characterData.hitPointMaximum);
-            setField('HPCurrent', characterData.currentHitPoints);
-            setField('HPTemp', characterData.temporaryHitPoints);
-            setField('HitDice', characterData.hitDice);
-            setField('ProfBonus', characterData.proficiencyBonus);
+            // Fill saving throws
+            for (const [save, data] of Object.entries(characterData.savingThrows)) {
+                const textFieldName = savingThrowTextFields[save];
+                setField(textFieldName, data.value);
+                if (data.proficient) {
+                    const boxName = savingThrowBoxes[save];
+                    try {
+                        form.getCheckBox(boxName).check();
+                    } catch {
+                        console.warn(`Checkbox "${boxName}" not found.`);
+                    }
+                }
+            }
 
-            // Fill character traits
-            setField('PersonalityTraits', characterData.personalityTraits);
-            setField('Ideals', characterData.ideals);
-            setField('Bonds', characterData.bonds);
-            setField('Flaws', characterData.flaws);
-            setField('Features', characterData.featuresAndTraits);
-            setField('Equipment', characterData.equipment);
+            // Fill skills
+            for (const [skill, data] of Object.entries(characterData.skills)) {
+                console.log(`Processing skill: ${skill}`);  // Log the actual key from characterData
+                const textFieldName = skillTextFields[skill as keyof typeof skillTextFields];
+                console.log(`Mapped field name: ${textFieldName}`);  // Check if lookup succeeds
+                setField(textFieldName, data.value);
+                if (data.proficient) {
+                    const boxName = skillProficiencyBoxes[skill as keyof typeof skillProficiencyBoxes];
+                    try {
+                        form.getCheckBox(boxName).check();
+                    } catch {
+                        console.warn(`Checkbox "${boxName}" not found.`);
+                    }
+                }
+            }
 
-            // Fill currency
-            setField('CP', characterData.cp);
-            setField('SP', characterData.sp);
-            setField('EP', characterData.ep);
-            setField('GP', characterData.gp);
-            setField('PP', characterData.pp);
+            // Fill attacks with the exact field names
+            const attackFields = [
+                { name: 'Wpn Name', atk: 'Wpn1 AtkBonus', dmg: 'Wpn1 Damage' },
+                { name: 'Wpn Name 2', atk: 'Wpn2 AtkBonus ', dmg: 'Wpn2 Damage ' },
+                { name: 'Wpn Name 3', atk: 'Wpn3 AtkBonus  ', dmg: 'Wpn3 Damage ' }
+            ];
 
-            // Save and download
+            characterData.attacks.slice(0, 3).forEach((atk, i) => {
+                const fields = attackFields[i];
+                setField(fields.name, atk.name);
+                setField(fields.atk, atk.atkBonus);
+                setField(fields.dmg, atk.damage);
+            });
+
+            // Save and download the filled PDF
             const filledPdfBytes = await pdfDoc.save();
-            const blob = new Blob([filledPdfBytes as BlobPart], { type: 'application/pdf' });
+            const blob = new Blob([filledPdfBytes.buffer as ArrayBuffer], { type: "application/pdf" });
             const url = URL.createObjectURL(blob);
-
-            const a = document.createElement('a');
+            const a = document.createElement("a");
             a.href = url;
-            a.download = `${characterData.characterName.replace(/\s+/g, '_')}_Character_Sheet.pdf`;
+            a.download = `${characterData.characterName.replace(/\s+/g, "_")}_Character_Sheet.pdf`;
             document.body.appendChild(a);
             a.click();
             document.body.removeChild(a);
             URL.revokeObjectURL(url);
 
         } catch (error) {
-            console.error('Error filling PDF:', error);
-            alert(`Error filling PDF: ${error instanceof Error ? error.message : 'Unknown error'}`);
+            console.error("Error filling PDF:", error);
+            alert(`An error occurred while filling the PDF: ${error instanceof Error ? error.message : "Unknown error"}`);
         }
     };
 
