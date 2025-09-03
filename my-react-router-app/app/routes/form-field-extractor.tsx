@@ -115,20 +115,25 @@ async function fillDnDCharacterSheet(pdfBytes: ArrayBuffer) {
   const pdfDoc = await PDFDocument.load(pdfBytes);
   const form = pdfDoc.getForm();
 
+  // IMPORTANT: Field names must match EXACTLY (including trailing spaces!)
+  
   // Fill Text Fields
-${textFields.map(field => 
-  `  form.getTextField('${field.name}').setText('Sample Text');`
-).join('\n')}
+${textFields.map(field => {
+  const escapedName = field.name.replace(/'/g, "\\'"); // Escape single quotes
+  return `  form.getTextField('${escapedName}').setText('${getSampleValue(field.name)}');`;
+}).join('\n')}
 
   // Set Checkboxes
-${checkboxes.map(field => 
-  `  form.getCheckBox('${field.name}').check(); // or .uncheck()`
-).join('\n')}
+${checkboxes.map(field => {
+  const escapedName = field.name.replace(/'/g, "\\'");
+  return `  form.getCheckBox('${escapedName}').check(); // or .uncheck()`;
+}).join('\n')}
 
 ${dropdowns.length > 0 ? `  // Set Dropdowns
-${dropdowns.map(field => 
-  `  form.getDropdown('${field.name}').select('${field.options?.[0] || 'option'}');`
-).join('\n')}` : ''}
+${dropdowns.map(field => {
+  const escapedName = field.name.replace(/'/g, "\\'");
+  return `  form.getDropdown('${escapedName}').select('${field.options?.[0] || 'option'}');`;
+}).join('\n')}` : ''}
 
   // Optional: Flatten form to prevent further editing
   // form.flatten();
@@ -138,32 +143,18 @@ ${dropdowns.map(field =>
   return modifiedPdfBytes;
 }
 
-// Example usage with specific D&D character data:
-async function fillWithCharacterData(pdfBytes: ArrayBuffer) {
+// Example with actual field names (notice the exact spacing!):
+async function fillWithRealFieldNames(pdfBytes: ArrayBuffer) {
   const pdfDoc = await PDFDocument.load(pdfBytes);
   const form = pdfDoc.getForm();
 
-  // Character basics
-  form.getTextField('CharacterName').setText('Aragorn');
-  form.getTextField('Race').setText('Human');
-  form.getTextField('Class').setText('Ranger');
-  form.getTextField('Level').setText('5');
-  form.getTextField('Background').setText('Folk Hero');
-  form.getTextField('Alignment').setText('Chaotic Good');
-  
-  // Ability Scores
-  form.getTextField('Strength').setText('16');
-  form.getTextField('Dexterity').setText('18');
-  form.getTextField('Constitution').setText('14');
-  form.getTextField('Intelligence').setText('12');
-  form.getTextField('Wisdom').setText('15');
-  form.getTextField('Charisma').setText('13');
-  
-  // Combat Stats
-  form.getTextField('AC').setText('15');
-  form.getTextField('Initiative').setText('+4');
-  form.getTextField('Speed').setText('30 ft');
-  form.getTextField('HP').setText('45');
+  // Examples showing EXACT field names with trailing spaces
+${textFields.slice(0, 10).map(field => {
+  const escapedName = field.name.replace(/'/g, "\\'");
+  const hasTrailingSpace = field.name !== field.name.trim();
+  const comment = hasTrailingSpace ? ' // Note: trailing space!' : '';
+  return `  form.getTextField('${escapedName}').setText('${getSampleValue(field.name)}');${comment}`;
+}).join('\n')}
   
   return await pdfDoc.save();
 }`;
@@ -175,58 +166,72 @@ async function fillWithCharacterData(pdfBytes: ArrayBuffer) {
     const fieldsMap: Record<string, any> = {};
     
     analysisResult.fields.forEach(field => {
-      const cleanFieldName = field.name.trim(); // Remove trailing spaces
+      // KEEP EXACT FIELD NAME - no trimming or cleaning!
+      const exactFieldName = field.name; // Preserve trailing spaces and special chars
       const fieldData: any = {
-        fieldName: cleanFieldName, // Original PDF field name
+        fieldName: exactFieldName, // Exact PDF field name for pdf-lib
+        displayName: exactFieldName.trim(), // Clean name for display purposes
         type: field.type === 'PDFTextField' ? 'textfield' : 
               field.type === 'PDFCheckBox' ? 'checkbox' : 
               field.type === 'PDFDropdown' ? 'dropdown' : 'unknown',
-        required: false, // You can modify this based on your needs
+        required: false,
+        hasTrailingSpace: exactFieldName !== exactFieldName.trim(), // Flag for trailing spaces
+        hasSpecialChars: /[^\w\s]/.test(exactFieldName), // Flag for special characters
       };
 
       if (field.type === 'PDFTextField') {
         fieldData.dataType = 'string';
         fieldData.maxLength = field.maxLength || null;
         fieldData.currentValue = field.value || '';
-        fieldData.sampleValue = getSampleValue(cleanFieldName);
-        fieldData.description = getFieldDescription(cleanFieldName);
+        fieldData.sampleValue = getSampleValue(exactFieldName);
+        fieldData.description = getFieldDescription(exactFieldName);
       } else if (field.type === 'PDFCheckBox') {
         fieldData.dataType = 'boolean';
         fieldData.currentValue = field.isChecked || false;
-        fieldData.sampleValue = getSampleValue(cleanFieldName) === 'true' || Math.random() > 0.5;
-        fieldData.description = getFieldDescription(cleanFieldName);
+        fieldData.sampleValue = getSampleValue(exactFieldName) === 'true' || Math.random() > 0.5;
+        fieldData.description = getFieldDescription(exactFieldName);
       } else if (field.type === 'PDFDropdown') {
         fieldData.dataType = 'string';
         fieldData.options = field.options || [];
         fieldData.currentValue = field.selected?.[0] || '';
-        fieldData.sampleValue = field.options?.[0] || getSampleValue(cleanFieldName);
-        fieldData.description = getFieldDescription(cleanFieldName);
+        fieldData.sampleValue = field.options?.[0] || getSampleValue(exactFieldName);
+        fieldData.description = getFieldDescription(exactFieldName);
       }
 
-      fieldsMap[cleanFieldName] = fieldData;
+      fieldsMap[exactFieldName] = fieldData; // Use exact name as key
     });
 
-    // Also generate a simplified data structure for easy form filling
-    const simpleData: Record<string, any> = {};
+    // Generate simple form data with EXACT field names
+    const simpleFormData: Record<string, any> = {};
     analysisResult.fields.forEach(field => {
-      const cleanFieldName = field.name.trim();
+      const exactFieldName = field.name; // Keep exact name!
       if (field.type === 'PDFTextField') {
-        simpleData[cleanFieldName] = getSampleValue(cleanFieldName);
+        simpleFormData[exactFieldName] = getSampleValue(exactFieldName);
       } else if (field.type === 'PDFCheckBox') {
-        simpleData[cleanFieldName] = Math.random() > 0.5;
+        simpleFormData[exactFieldName] = Math.random() > 0.5;
       } else if (field.type === 'PDFDropdown') {
-        simpleData[cleanFieldName] = field.options?.[0] || '';
+        simpleFormData[exactFieldName] = field.options?.[0] || '';
       }
     });
+
+    // Field names analysis
+    const fieldNamesWithSpaces = analysisResult.fields.filter(f => f.name !== f.name.trim()).map(f => f.name);
+    const fieldNamesWithSpecialChars = analysisResult.fields.filter(f => /[^\w\s]/.test(f.name)).map(f => f.name);
 
     return JSON.stringify({
       fullSchema: fieldsMap,
-      simpleFormData: simpleData,
+      simpleFormData: simpleFormData,
       fieldCount: {
         textFields: analysisResult.fields.filter(f => f.type === 'PDFTextField').length,
         checkboxes: analysisResult.fields.filter(f => f.type === 'PDFCheckBox').length,
         dropdowns: analysisResult.fields.filter(f => f.type === 'PDFDropdown').length,
         total: analysisResult.fields.length
+      },
+      specialCharacterAnalysis: {
+        fieldsWithTrailingSpaces: fieldNamesWithSpaces,
+        fieldsWithSpecialChars: fieldNamesWithSpecialChars,
+        totalFieldsWithSpaces: fieldNamesWithSpaces.length,
+        totalFieldsWithSpecialChars: fieldNamesWithSpecialChars.length
       }
     }, null, 2);
   };
