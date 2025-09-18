@@ -1,10 +1,10 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Download, FileText, Wand2, Upload, Eye, EyeOff } from 'lucide-react';
-import { PDFDocument } from 'pdf-lib';
 
+// Remove the server-side import and declare type
+type PDFLibType = typeof import('pdf-lib');
 
-// ✅ Use these corrected maps in your component's scope.
-
+// Field mapping configurations remain the same
 const pdfFieldMap: Record<string, keyof CharacterData> = {
     CharacterName: "characterName",
     PlayerName: "playerName",
@@ -25,7 +25,7 @@ const pdfFieldMap: Record<string, keyof CharacterData> = {
     HPMax: "hitPointMaximum",
     HPCurrent: "currentHitPoints",
     HPTemp: "temporaryHitPoints",
-    HDTotal: "hitDice", // Corrected from HitDice to HDTotal
+    HDTotal: "hitDice",
     ProfBonus: "proficiencyBonus",
     "PersonalityTraits ": "personalityTraits",
     Ideals: "ideals",
@@ -62,18 +62,18 @@ const skillTextFields: Record<string, string> = {
     athletics: "Athletics",
     acrobatics: "Acrobatics", 
     sleightOfHand: "SleightofHand",
-    "stealth ": "Stealth", // Note: this key has trailing space
+    "stealth ": "Stealth",
     arcana: "Arcana",
-    "history ": "History", // Note: this key has trailing space  
-    "investigation ": "Investigation", // Note: this key has trailing space
+    "history ": "History",
+    "investigation ": "Investigation",
     nature: "Nature",
     religion: "Religion",
     animalHandling: "Animal",
     insight: "Insight", 
     medicine: "Medicine",
-    "perception ": "Perception", // Note: this key has trailing space
+    "perception ": "Perception",
     survival: "Survival",
-    "deception ": "Deception", // Note: this key has trailing space, but PDF field is "Deception"
+    "deception ": "Deception",
     intimidation: "Intimidation",
     performance: "Performance", 
     persuasion: "Persuasion"
@@ -100,8 +100,6 @@ const skillProficiencyBoxes: Record<keyof CharacterData["skills"], string> = {
     survival: "Check Box 39",
 };
 
-
-
 interface CharacterData {
     characterName: string;
     playerName: string;
@@ -111,17 +109,17 @@ interface CharacterData {
     alignment: string;
     experiencePoints: string;
     strength: string;
-    strengthMod: string; // <-- ADD THIS
+    strengthMod: string;
     dexterity: string;
-    dexterityMod: string; // <-- ADD THIS
+    dexterityMod: string;
     constitution: string;
-    constitutionMod: string; // <-- ADD THIS
+    constitutionMod: string;
     intelligence: string;
-    intelligenceMod: string; // <-- ADD THIS
+    intelligenceMod: string;
     wisdom: string;
-    wisdomMod: string; // <-- ADD THIS
+    wisdomMod: string;
     charisma: string;
-    charismaMod: string; // <-- ADD THIS
+    charismaMod: string;
     armorClass: string;
     initiative: string;
     speed: string;
@@ -139,10 +137,10 @@ interface CharacterData {
     attacks: Array<{
         name: string;
         atkBonus: string;
-        damage: string; // <-- RENAME for clarity (damageType -> damage)
+        damage: string;
     }>;
-    skills: { [key: string]: { proficient: boolean, value: string } }; // <-- UPDATE skills structure
-    savingThrows: { [key: string]: { proficient: boolean, value: string } }; // <-- UPDATE saving throws
+    skills: { [key: string]: { proficient: boolean, value: string } };
+    savingThrows: { [key: string]: { proficient: boolean, value: string } };
     cp: string;
     sp: string;
     ep: string;
@@ -157,6 +155,27 @@ export default function CharacterGenerator() {
     const [pdfFile, setPdfFile] = useState<File | null>(null);
     const [apiKey, setApiKey] = useState('');
     const [showApiKey, setShowApiKey] = useState(false);
+    
+    // Add state for PDF library
+    const [pdfLib, setPdfLib] = useState<PDFLibType | null>(null);
+    const [pdfLibLoading, setPdfLibLoading] = useState(true);
+
+    // Load PDF library on component mount
+    useEffect(() => {
+        const loadPdfLib = async () => {
+            try {
+                const lib = await import('pdf-lib');
+                setPdfLib(lib);
+            } catch (error) {
+                console.error('Failed to load PDF library:', error);
+                alert('Failed to load PDF processing library. PDF filling will not work.');
+            } finally {
+                setPdfLibLoading(false);
+            }
+        };
+
+        loadPdfLib();
+    }, []);
 
     const generateCharacterData = async (userPrompt: string) => {
         if (!apiKey.trim()) {
@@ -283,7 +302,6 @@ Make the character mechanically sound according to D&D 5e rules and thematically
         }
     };
 
-
     const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
         const file = event.target.files?.[0];
         if (file && file.type === 'application/pdf') {
@@ -292,7 +310,13 @@ Make the character mechanically sound according to D&D 5e rules and thematically
             alert('Please upload a PDF file');
         }
     };
+
     const fillPDF = async () => {
+        if (!pdfLib) {
+            alert("PDF processing library not loaded yet. Please try again in a moment.");
+            return;
+        }
+
         if (!characterData || !pdfFile) {
             alert("Please generate character data and upload a PDF first");
             return;
@@ -300,7 +324,7 @@ Make the character mechanically sound according to D&D 5e rules and thematically
 
         try {
             const pdfBytes = await pdfFile.arrayBuffer();
-            const pdfDoc = await PDFDocument.load(pdfBytes);
+            const pdfDoc = await pdfLib.PDFDocument.load(pdfBytes);
             const form = pdfDoc.getForm();
 
             const setField = (fieldName: string, value: string | undefined) => {
@@ -342,9 +366,9 @@ Make the character mechanically sound according to D&D 5e rules and thematically
 
             // Fill skills
             for (const [skill, data] of Object.entries(characterData.skills)) {
-                console.log(`Processing skill: ${skill}`);  // Log the actual key from characterData
+                console.log(`Processing skill: ${skill}`);
                 const textFieldName = skillTextFields[skill as keyof typeof skillTextFields];
-                console.log(`Mapped field name: ${textFieldName}`);  // Check if lookup succeeds
+                console.log(`Mapped field name: ${textFieldName}`);
                 setField(textFieldName, data.value);
                 if (data.proficient) {
                     const boxName = skillProficiencyBoxes[skill as keyof typeof skillProficiencyBoxes];
@@ -398,6 +422,12 @@ Make the character mechanically sound according to D&D 5e rules and thematically
                 <p className="text-gray-600 mb-6">
                     Generate character data with AI, then automatically fill the official D&D character sheet PDF.
                 </p>
+
+                {pdfLibLoading && (
+                    <div className="mb-4 p-3 bg-yellow-50 border border-yellow-200 rounded text-yellow-700 text-sm">
+                        Loading PDF processing library...
+                    </div>
+                )}
 
                 {/* API Key Input */}
                 <div className="mb-4">
@@ -498,10 +528,11 @@ Make the character mechanically sound according to D&D 5e rules and thematically
                 {characterData && pdfFile && (
                     <button
                         onClick={fillPDF}
-                        className="w-full px-6 py-3 bg-green-600 text-white rounded-md hover:bg-green-700 flex items-center justify-center gap-2 text-lg font-medium"
+                        disabled={pdfLibLoading || !pdfLib}
+                        className="w-full px-6 py-3 bg-green-600 text-white rounded-md hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 text-lg font-medium"
                     >
                         <Download />
-                        Fill PDF & Download
+                        {pdfLibLoading ? 'Loading PDF Library...' : 'Fill PDF & Download'}
                     </button>
                 )}
             </div>
