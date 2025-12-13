@@ -1,15 +1,17 @@
 import { useState, useEffect } from 'react';
-import { Download, FileText, Wand2, Upload, Eye, EyeOff } from 'lucide-react';
+import { Wand2, Eye, EyeOff } from 'lucide-react';
+import { useNavigate } from 'react-router';
+import CharacterSheet from './character-sheet';
 
 // Remove the server-side import and declare type
 type PDFLibType = typeof import('pdf-lib');
 
-// Field mapping configurations remain the same
+// Field mapping configurations remain the same (kept for potential future PDF export feature)
 const pdfFieldMap: Record<string, keyof CharacterData> = {
     CharacterName: "characterName",
     PlayerName: "playerName",
     "Race ": "race",
-    ClassLevel: "classAndLevel",
+    ClassLevel: "class",
     Background: "background",
     Alignment: "alignment",
     XP: "experiencePoints",
@@ -100,11 +102,22 @@ const skillProficiencyBoxes: Record<keyof CharacterData["skills"], string> = {
     survival: "Check Box 39",
 };
 
+interface Feature {
+  name: string;
+  description: string;
+  category?: string;
+}
+
 interface CharacterData {
     characterName: string;
     playerName: string;
     race: string;
-    classAndLevel: string;
+    raceDescription: string;
+    class: string;
+    classDescription: string;
+    level: string;
+    subclass: string;
+    subclassDescription: string;
     background: string;
     alignment: string;
     experiencePoints: string;
@@ -132,6 +145,7 @@ interface CharacterData {
     ideals: string;
     bonds: string;
     flaws: string;
+    features: Feature[];
     featuresAndTraits: string;
     equipment: string;
     attacks: Array<{
@@ -141,6 +155,27 @@ interface CharacterData {
     }>;
     skills: { [key: string]: { proficient: boolean, value: string } };
     savingThrows: { [key: string]: { proficient: boolean, value: string } };
+    cantrips: Array<{
+        name: string;
+        level: string;
+        school: string;
+        castingTime: string;
+        range: string;
+        duration: string;
+        description: string;
+    }>;
+    spells: Array<{
+        name: string;
+        level: string;
+        school: string;
+        castingTime: string;
+        range: string;
+        duration: string;
+        description: string;
+    }>;
+    spellcastingAbility: string;
+    spellSaveDC: string;
+    spellAttackBonus: string;
     cp: string;
     sp: string;
     ep: string;
@@ -149,33 +184,18 @@ interface CharacterData {
 }
 
 export default function CharacterGenerator() {
+    const navigate = useNavigate();
     const [prompt, setPrompt] = useState('');
     const [characterData, setCharacterData] = useState<CharacterData | null>(null);
     const [loading, setLoading] = useState(false);
-    const [pdfFile, setPdfFile] = useState<File | null>(null);
     const [apiKey, setApiKey] = useState('');
     const [showApiKey, setShowApiKey] = useState(false);
-    
-    // Add state for PDF library
-    const [pdfLib, setPdfLib] = useState<PDFLibType | null>(null);
-    const [pdfLibLoading, setPdfLibLoading] = useState(true);
+    const [showSheet, setShowSheet] = useState(false);
 
-    // Load PDF library on component mount
-    useEffect(() => {
-        const loadPdfLib = async () => {
-            try {
-                const lib = await import('pdf-lib');
-                setPdfLib(lib);
-            } catch (error) {
-                console.error('Failed to load PDF library:', error);
-                alert('Failed to load PDF processing library. PDF filling will not work.');
-            } finally {
-                setPdfLibLoading(false);
-            }
-        };
-
-        loadPdfLib();
-    }, []);
+    // Show character sheet view when data is generated
+    if (showSheet && characterData) {
+        return <CharacterSheet character={characterData} onBack={() => setShowSheet(false)} />;
+    }
 
     const generateCharacterData = async (userPrompt: string) => {
         if (!apiKey.trim()) {
@@ -195,7 +215,12 @@ Please return ONLY a JSON object with these exact field names and appropriate va
   "characterName": "string",
   "playerName": "",
   "race": "string", 
-  "classAndLevel": "string (e.g., 'Fighter 3')",
+  "raceDescription": "string (2-3 sentences describing the racial traits, culture, and abilities)",
+  "class": "string (e.g., 'Fighter')",
+  "classDescription": "string (2-3 sentences describing the class role, abilities, and playstyle)",
+  "level": "string (e.g., '3')",
+  "subclass": "string (e.g., 'Eldritch Knight' - the subclass/archetype; use empty string if no subclass)",
+  "subclassDescription": "string (2-3 sentences describing the subclass features; empty string if no subclass)",
   "background": "string",
   "alignment": "string",
   "experiencePoints": "string",
@@ -223,7 +248,14 @@ Please return ONLY a JSON object with these exact field names and appropriate va
   "ideals": "string", 
   "bonds": "string",
   "flaws": "string",
-  "featuresAndTraits": "string (class features, racial traits, etc.)",
+  "features": [
+    {
+      "name": "string (e.g., 'Second Wind')",
+      "description": "string (detailed description of what the feature does and how it works)",
+      "category": "string (e.g., 'class', 'racial', 'background', 'feat')"
+    }
+  ],
+  "featuresAndTraits": "string (for backward compatibility - can be empty)",
   "equipment": "string (comma-separated list)",
   "attacks": [
     {
@@ -260,6 +292,35 @@ Please return ONLY a JSON object with these exact field names and appropriate va
     "wisdom": { "proficient": false, "value": "+0" },
     "charisma": { "proficient": false, "value": "+0" }
   },
+  "cantrips": [
+    {
+      "name": "string (e.g., 'Fire Bolt')",
+      "level": "0",
+      "school": "string (e.g., 'Evocation')",
+      "castingTime": "string (e.g., '1 action')",
+      "range": "string (e.g., '120 feet')",
+      "duration": "string (e.g., 'Instantaneous')",
+      "description": "string (spell effects and details)",
+      "damage": "string (optional, e.g., '1d10 fire')",
+      "saveDC": "string (optional)"
+    }
+  ],
+  "spells": [
+    {
+      "name": "string (e.g., 'Meteor Swarm')",
+      "level": "string (1-9)",
+      "school": "string (e.g., 'Evocation')",
+      "castingTime": "string (e.g., '1 action')",
+      "range": "string (e.g., '1 mile')",
+      "duration": "string (e.g., 'Instantaneous')",
+      "description": "string (spell effects and details)",
+      "damage": "string (optional, e.g., '20d6 fire')",
+      "saveDC": "string (optional, e.g., 'DEX 20')"
+    }
+  ],
+  "spellcastingAbility": "string (INT, WIS, or CHA based on class)",
+  "spellSaveDC": "string (e.g., '15')",
+  "spellAttackBonus": "string (with + or -)",
   "cp": "0",
   "sp": "0",
   "ep": "0", 
@@ -267,7 +328,10 @@ Please return ONLY a JSON object with these exact field names and appropriate va
   "pp": "0"
 }
 
-Make the character mechanically sound according to D&D 5e rules and thematically appropriate to the prompt.`);
+Ensure mathematical accuracy (modifiers = (ability - 10) / 2, rounded down). 
+For spellcasters, include all cantrips available at this level, plus a thematic selection of leveled spells that the character would reasonably prepare/know based on their class spell list and level.
+Include 4-6 important class and racial features in the features array, each with a clear description of what it does.
+Make personality traits, background, and story elements match the theme requested in the prompt.`);
             formData.append('apiKey', apiKey);
 
             const response = await fetch('/api/character', {
@@ -292,7 +356,36 @@ Make the character mechanically sound according to D&D 5e rules and thematically
             }
 
             const characterJson = JSON.parse(jsonMatch[0]);
+            
+            // Backward compatibility: convert old featuresAndTraits text to structured features
+            if (!characterJson.features || characterJson.features.length === 0) {
+                characterJson.features = [];
+                if (characterJson.featuresAndTraits && characterJson.featuresAndTraits.trim()) {
+                    // Try to split by common delimiters
+                    const featureTexts = characterJson.featuresAndTraits
+                        .split(/\n|;|\|(?=[A-Z])/)
+                        .filter((f: string) => f.trim().length > 0);
+                    
+                    featureTexts.forEach((text: string) => {
+                        const trimmed = text.trim();
+                        if (trimmed) {
+                            characterJson.features.push({
+                                name: trimmed.substring(0, Math.min(50, trimmed.indexOf(':') > 0 ? trimmed.indexOf(':') : trimmed.length)),
+                                description: trimmed,
+                                category: 'custom'
+                            });
+                        }
+                    });
+                }
+            }
+
+            // Ensure default values for new fields
+            if (!characterJson.raceDescription) characterJson.raceDescription = '';
+            if (!characterJson.classDescription) characterJson.classDescription = '';
+            if (!characterJson.subclassDescription) characterJson.subclassDescription = '';
+            
             setCharacterData(characterJson);
+            setShowSheet(true);
 
         } catch (error) {
             console.error('Error generating character:', error);
@@ -302,136 +395,21 @@ Make the character mechanically sound according to D&D 5e rules and thematically
         }
     };
 
-    const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
-        const file = event.target.files?.[0];
-        if (file && file.type === 'application/pdf') {
-            setPdfFile(file);
-        } else {
-            alert('Please upload a PDF file');
-        }
-    };
 
-    const fillPDF = async () => {
-        if (!pdfLib) {
-            alert("PDF processing library not loaded yet. Please try again in a moment.");
-            return;
-        }
-
-        if (!characterData || !pdfFile) {
-            alert("Please generate character data and upload a PDF first");
-            return;
-        }
-
-        try {
-            const pdfBytes = await pdfFile.arrayBuffer();
-            const pdfDoc = await pdfLib.PDFDocument.load(pdfBytes);
-            const form = pdfDoc.getForm();
-
-            const setField = (fieldName: string, value: string | undefined) => {
-                if (value === undefined || String(value).trim() === "") return;
-                try {
-                    form.getTextField(fieldName).setText(String(value));
-                } catch {
-                    console.warn(`Text field "${fieldName}" not found or failed to set.`);
-                }
-            };
-
-            // Fill basic fields from the map
-            for (const [pdfField, dataKey] of Object.entries(pdfFieldMap)) {
-                const value = characterData[dataKey as keyof CharacterData] as string;
-                setField(pdfField, value);
-            }
-
-            // Fill ability score modifiers
-            setField("STRmod", characterData.strengthMod);
-            setField("DEXmod ", characterData.dexterityMod);
-            setField("CONmod", characterData.constitutionMod);
-            setField("INTmod", characterData.intelligenceMod);
-            setField("WISmod", characterData.wisdomMod);
-            setField("CHamod", characterData.charismaMod);
-
-            // Fill saving throws
-            for (const [save, data] of Object.entries(characterData.savingThrows)) {
-                const textFieldName = savingThrowTextFields[save];
-                setField(textFieldName, data.value);
-                if (data.proficient) {
-                    const boxName = savingThrowBoxes[save];
-                    try {
-                        form.getCheckBox(boxName).check();
-                    } catch {
-                        console.warn(`Checkbox "${boxName}" not found.`);
-                    }
-                }
-            }
-
-            // Fill skills
-            for (const [skill, data] of Object.entries(characterData.skills)) {
-                console.log(`Processing skill: ${skill}`);
-                const textFieldName = skillTextFields[skill as keyof typeof skillTextFields];
-                console.log(`Mapped field name: ${textFieldName}`);
-                setField(textFieldName, data.value);
-                if (data.proficient) {
-                    const boxName = skillProficiencyBoxes[skill as keyof typeof skillProficiencyBoxes];
-                    try {
-                        form.getCheckBox(boxName).check();
-                    } catch {
-                        console.warn(`Checkbox "${boxName}" not found.`);
-                    }
-                }
-            }
-
-            // Fill attacks with the exact field names
-            const attackFields = [
-                { name: 'Wpn Name', atk: 'Wpn1 AtkBonus', dmg: 'Wpn1 Damage' },
-                { name: 'Wpn Name 2', atk: 'Wpn2 AtkBonus ', dmg: 'Wpn2 Damage ' },
-                { name: 'Wpn Name 3', atk: 'Wpn3 AtkBonus  ', dmg: 'Wpn3 Damage ' }
-            ];
-
-            characterData.attacks.slice(0, 3).forEach((atk, i) => {
-                const fields = attackFields[i];
-                setField(fields.name, atk.name);
-                setField(fields.atk, atk.atkBonus);
-                setField(fields.dmg, atk.damage);
-            });
-
-            // Save and download the filled PDF
-            const filledPdfBytes = await pdfDoc.save();
-            const blob = new Blob([filledPdfBytes.buffer as ArrayBuffer], { type: "application/pdf" });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement("a");
-            a.href = url;
-            a.download = `${characterData.characterName.replace(/\s+/g, "_")}_Character_Sheet.pdf`;
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-            URL.revokeObjectURL(url);
-
-        } catch (error) {
-            console.error("Error filling PDF:", error);
-            alert(`An error occurred while filling the PDF: ${error instanceof Error ? error.message : "Unknown error"}`);
-        }
-    };
 
     return (
-        <div className="max-w-4xl mx-auto p-6 bg-gray-50 min-h-screen">
-            <div className="bg-white rounded-lg shadow-lg p-6 mb-6">
-                <h1 className="text-3xl font-bold text-gray-800 mb-4 flex items-center gap-2">
-                    <FileText className="text-blue-600" />
-                    D&D Character Sheet PDF Filler
+        <div className="max-w-4xl mx-auto p-6 bg-gradient-to-br from-gray-950 to-gray-900 min-h-screen">
+            <div className="bg-gray-900 rounded-lg shadow-lg border border-orange-500 p-8 mb-6">
+                <h1 className="text-4xl font-bold text-orange-400 mb-2">
+                    D&D Character Generator
                 </h1>
-                <p className="text-gray-600 mb-6">
-                    Generate character data with AI, then automatically fill the official D&D character sheet PDF.
+                <p className="text-gray-300 mb-8">
+                    Generate your next character with AI, then view and customize it in an interactive D&D Beyond-style sheet.
                 </p>
 
-                {pdfLibLoading && (
-                    <div className="mb-4 p-3 bg-yellow-50 border border-yellow-200 rounded text-yellow-700 text-sm">
-                        Loading PDF processing library...
-                    </div>
-                )}
-
                 {/* API Key Input */}
-                <div className="mb-4">
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                <div className="mb-6">
+                    <label className="block text-sm font-medium text-orange-300 mb-2">
                         OpenRouter API Key:
                     </label>
                     <div className="relative">
@@ -440,22 +418,22 @@ Make the character mechanically sound according to D&D 5e rules and thematically
                             value={apiKey}
                             onChange={(e) => setApiKey(e.target.value)}
                             placeholder="sk-or-v1-..."
-                            className="w-full p-3 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 text-gray-900 placeholder-gray-400"
+                            className="w-full p-3 border border-orange-500 rounded-md bg-gray-800 text-orange-300 placeholder-gray-500 focus:ring-2 focus:ring-orange-400"
                         />
 
                         <button
                             type="button"
                             onClick={() => setShowApiKey(!showApiKey)}
-                            className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                            className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-orange-300 transition-colors"
                         >
                             {showApiKey ? <EyeOff size={20} /> : <Eye size={20} />}
                         </button>
                     </div>
-                    <p className="text-xs text-gray-500 mt-1">
+                    <p className="text-xs text-gray-400 mt-1">
                         Get your API key from{" "}
                         <a
                             href="https://openrouter.ai/app/keys"
-                            className="text-blue-600 hover:underline"
+                            className="text-orange-400 hover:underline"
                             target="_blank"
                             rel="noopener noreferrer"
                         >
@@ -466,131 +444,36 @@ Make the character mechanically sound according to D&D 5e rules and thematically
 
                 {/* Character Prompt */}
                 <div className="mb-6">
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                    <label className="block text-sm font-medium text-orange-300 mb-2">
                         Describe your character:
                     </label>
                     <textarea
                         value={prompt}
                         onChange={(e) => setPrompt(e.target.value)}
-                        placeholder="e.g., 'Make me a level 3 character similar to Jude Duarte...' "
-                        className="w-full p-3 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 text-gray-900 placeholder-gray-400"
-                        rows={3}
+                        placeholder="e.g., 'Make me a level 3 ranger with a mysterious background...' "
+                        className="w-full p-3 border border-orange-500 rounded-md bg-gray-800 text-orange-300 placeholder-gray-500 focus:ring-2 focus:ring-orange-400"
+                        rows={4}
                     />
 
                     <button
                         onClick={() => generateCharacterData(prompt)}
                         disabled={loading || !prompt.trim()}
-                        className="mt-3 px-6 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                        className="mt-4 px-6 py-3 bg-orange-600 hover:bg-orange-700 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-md font-semibold flex items-center gap-2 transition-colors"
                     >
                         {loading ? (
                             <>
-                                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
-                                Generating with Claude...
+                                <div className="animate-spin rounded-full h-5 w-5 border-2 border-white border-t-transparent"></div>
+                                Generating Character...
                             </>
                         ) : (
                             <>
-                                <Wand2 />
-                                Generate Character Data
+                                <Wand2 size={20} />
+                                Generate Character
                             </>
                         )}
                     </button>
                 </div>
-
-                {/* PDF Upload */}
-                <div className="mb-6">
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                        Upload D&D Character Sheet PDF:
-                    </label>
-                    <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center hover:border-blue-400 transition-colors">
-                        <Upload className="mx-auto h-12 w-12 text-gray-400 mb-4" />
-                        <input
-                            type="file"
-                            accept=".pdf"
-                            onChange={handleFileUpload}
-                            className="hidden"
-                            id="pdf-upload"
-                        />
-                        <label
-                            htmlFor="pdf-upload"
-                            className="cursor-pointer text-blue-600 hover:text-blue-800 font-medium"
-                        >
-                            Click to upload the official D&D character sheet PDF
-                        </label>
-                        {pdfFile && (
-                            <p className="mt-2 text-sm text-green-600">
-                                ✓ Uploaded: {pdfFile.name}
-                            </p>
-                        )}
-                    </div>
-                </div>
-
-                {/* Fill PDF Button */}
-                {characterData && pdfFile && (
-                    <button
-                        onClick={fillPDF}
-                        disabled={pdfLibLoading || !pdfLib}
-                        className="w-full px-6 py-3 bg-green-600 text-white rounded-md hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 text-lg font-medium"
-                    >
-                        <Download />
-                        {pdfLibLoading ? 'Loading PDF Library...' : 'Fill PDF & Download'}
-                    </button>
-                )}
             </div>
-
-            {/* Character Data Preview */}
-            {characterData && (
-                <div className="bg-white rounded-lg shadow-lg p-6">
-                    <h2 className="text-xl font-bold text-gray-800 mb-4">Generated Character Data</h2>
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 text-sm">
-                        <div>
-                            <span className="font-medium text-gray-700">Name:</span> {characterData.characterName}
-                        </div>
-                        <div>
-                            <span className="font-medium text-gray-700">Race:</span> {characterData.race}
-                        </div>
-                        <div>
-                            <span className="font-medium text-gray-700">Class:</span> {characterData.classAndLevel}
-                        </div>
-                        <div>
-                            <span className="font-medium text-gray-700">Background:</span> {characterData.background}
-                        </div>
-                        <div>
-                            <span className="font-medium text-gray-700">Alignment:</span> {characterData.alignment}
-                        </div>
-                        <div>
-                            <span className="font-medium text-gray-700">STR:</span> {characterData.strength}
-                        </div>
-                        <div>
-                            <span className="font-medium text-gray-700">DEX:</span> {characterData.dexterity}
-                        </div>
-                        <div>
-                            <span className="font-medium text-gray-700">CON:</span> {characterData.constitution}
-                        </div>
-                        <div>
-                            <span className="font-medium text-gray-700">INT:</span> {characterData.intelligence}
-                        </div>
-                        <div>
-                            <span className="font-medium text-gray-700">WIS:</span> {characterData.wisdom}
-                        </div>
-                        <div>
-                            <span className="font-medium text-gray-700">CHA:</span> {characterData.charisma}
-                        </div>
-                        <div>
-                            <span className="font-medium text-gray-700">AC:</span> {characterData.armorClass}
-                        </div>
-                        <div>
-                            <span className="font-medium text-gray-700">HP:</span> {characterData.hitPointMaximum}
-                        </div>
-                    </div>
-
-                    {characterData.personalityTraits && (
-                        <div className="mt-4 p-4 bg-blue-50 rounded-lg">
-                            <h3 className="font-medium text-blue-900 mb-2">Personality</h3>
-                            <p className="text-sm text-blue-800">{characterData.personalityTraits}</p>
-                        </div>
-                    )}
-                </div>
-            )}
         </div>
     );
 }
