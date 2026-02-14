@@ -17,6 +17,7 @@ import {
   formatSpellBonus,
 } from '../utils/diceRoller';
 import { getSpellAttackType, hasVariableDamage, detectHealingSpell, getHealingSpell } from '../utils/spellAttackConfig';
+import { getBonusDamageFeatures, type BonusDamageFeature } from '../utils/bonusDamageFeatures';
 
 // D&D 5e Calculation Utilities
 const calculateModifier = (abilityScore: number): number => {
@@ -192,6 +193,13 @@ export default function CharacterSheet({ character: initialCharacter, onBack }: 
   const [pdfVersion, setPdfVersion] = useState<'2024' | 'original'>('2024');
   const [rollHistory, setRollHistory] = useState<RollResult[]>([]);
   const [historyMinimized, setHistoryMinimized] = useState(true);
+  const [openSmitePicker, setOpenSmitePicker] = useState<string | null>(null); // tracks which picker is open: "featureName-weaponIdx"
+
+  // Bonus damage features for weapon cards
+  const bonusDamageFeatures = useMemo(() =>
+    getBonusDamageFeatures(character.class, character.level, character.features, character.race),
+    [character.class, character.level, character.features, character.race]
+  );
 
   // Calculate derived values
   const proficiencyBonus = useMemo(() => calculateProficiencyBonus(character.level), [character.level]);
@@ -370,6 +378,12 @@ export default function CharacterSheet({ character: initialCharacter, onBack }: 
   const handleRollDamage = (weaponName: string, damageFormula: string, diceSides?: number) => {
     const result = rollDamage(weaponName, damageFormula, diceSides);
     addRoll(result);
+  };
+
+  const handleRollBonusDamage = (featureName: string, dice: string) => {
+    const result = rollDamage(featureName, dice);
+    addRoll(result);
+    setOpenSmitePicker(null);
   };
 
   const addRoll = (roll: RollResult) => {
@@ -913,6 +927,62 @@ export default function CharacterSheet({ character: initialCharacter, onBack }: 
                                   >
                                     <Dice5 className="w-4 h-4" />
                                   </button>
+                                </div>
+                              )}
+                              {/* Bonus Damage Feature Buttons */}
+                              {!isEditing && bonusDamageFeatures.length > 0 && (
+                                <div className="flex flex-wrap gap-1.5 mt-2 pt-2 border-t border-gray-200">
+                                  {bonusDamageFeatures.map((feature, fIdx) => {
+                                    const pickerKey = `${feature.name}-${idx}`;
+                                    const isPickerOpen = openSmitePicker === pickerKey;
+
+                                    // Picker-style feature (Divine Smite, Eldritch Smite)
+                                    if (feature.options) {
+                                      return (
+                                        <div key={fIdx} className="relative">
+                                          <button
+                                            onClick={() => setOpenSmitePicker(isPickerOpen ? null : pickerKey)}
+                                            className="px-2 py-1 text-xs bg-purple-600 hover:bg-purple-700 text-white rounded transition-colors flex items-center gap-1"
+                                            title={feature.condition}
+                                          >
+                                            <span>{feature.label}</span>
+                                            <ChevronDown className={`w-3 h-3 transition-transform ${isPickerOpen ? 'rotate-180' : ''}`} />
+                                          </button>
+                                          {isPickerOpen && (
+                                            <div className="absolute left-0 top-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg z-10 min-w-[160px]">
+                                              {feature.options.map((opt, oIdx) => (
+                                                <button
+                                                  key={oIdx}
+                                                  onClick={() => handleRollBonusDamage(feature.name, opt.dice)}
+                                                  className="w-full text-left px-3 py-1.5 text-xs hover:bg-purple-50 text-gray-700 hover:text-purple-700 transition-colors first:rounded-t-lg last:rounded-b-lg flex items-center justify-between gap-2"
+                                                >
+                                                  <span>{opt.label}</span>
+                                                  <Dice5 className="w-3 h-3 text-purple-500" />
+                                                </button>
+                                              ))}
+                                            </div>
+                                          )}
+                                        </div>
+                                      );
+                                    }
+
+                                    // Simple feature (Sneak Attack, Colossus Slayer, etc.)
+                                    return (
+                                      <button
+                                        key={fIdx}
+                                        onClick={() => handleRollBonusDamage(feature.name, feature.dice!)}
+                                        className={`px-2 py-1 text-xs text-white rounded transition-colors flex items-center gap-1 ${
+                                          feature.critOnly
+                                            ? 'bg-red-600 hover:bg-red-700'
+                                            : 'bg-purple-600 hover:bg-purple-700'
+                                        }`}
+                                        title={feature.condition}
+                                      >
+                                        <span>{feature.label}</span>
+                                        <Dice5 className="w-3 h-3" />
+                                      </button>
+                                    );
+                                  })}
                                 </div>
                               )}
                             </div>
