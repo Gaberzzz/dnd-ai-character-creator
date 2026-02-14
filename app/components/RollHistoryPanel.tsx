@@ -16,6 +16,8 @@ function getTypeLabel(type: string): string {
       return 'Attacks';
     case 'damage':
       return 'Damage Rolls';
+    case 'healing':
+      return 'Healing';
     default:
       return type;
   }
@@ -33,13 +35,20 @@ function getTypeColor(type: string): string {
       return 'bg-red-900 border-red-700';
     case 'damage':
       return 'bg-orange-900 border-orange-700';
+    case 'healing':
+      return 'bg-green-900 border-green-700';
     default:
       return 'bg-gray-800 border-gray-700';
   }
 }
 
+export interface DisplayRoll extends RollResult {
+  characterName: string;
+  isRemote: boolean;
+}
+
 interface RollHistoryPanelProps {
-  rolls: RollResult[];
+  rolls: DisplayRoll[];
   minimized: boolean;
   onToggleMinimize: () => void;
   onClearHistory: () => void;
@@ -73,7 +82,7 @@ export function RollHistoryPanel({
       acc[roll.type].push(roll);
       return acc;
     },
-    {} as Record<string, RollResult[]>
+    {} as Record<string, DisplayRoll[]>
   );
 
   if (minimized) {
@@ -183,17 +192,24 @@ export function RollHistoryPanel({
 }
 
 interface RollItemProps {
-  roll: RollResult;
+  roll: DisplayRoll;
   compact?: boolean;
 }
 
 function RollItem({ roll, compact = false }: RollItemProps) {
+  const borderClass = roll.isRemote
+    ? 'border-l-4 border-l-blue-500'
+    : 'border-l-4 border-l-orange-500';
+
   return (
     <div
-      className={`bg-gray-800 border border-gray-700 rounded p-2 hover:border-orange-500 transition-colors ${compact ? 'p-1' : ''}`}
+      className={`bg-gray-800 border border-gray-700 rounded p-2 hover:border-orange-500 transition-colors ${borderClass} ${compact ? 'p-1' : ''}`}
     >
       <div className="flex items-start justify-between gap-2">
         <div className="flex-1 min-w-0">
+          <p className={`text-gray-400 truncate ${compact ? 'text-[10px]' : 'text-xs'}`}>
+            {roll.characterName}
+          </p>
           <p className={`text-gray-200 font-semibold truncate ${compact ? 'text-xs' : 'text-sm'}`}>
             {roll.name}
           </p>

@@ -15,6 +15,19 @@ export interface RollResult {
   timestamp: Date;
 }
 
+export interface SharedRollResult {
+  id: string;
+  characterName: string;
+  type: string;
+  name: string;
+  formula: string;
+  rolls: number[];
+  modifier: number;
+  total: number;
+  breakdown: string;
+  timestamp: string; // ISO string for JSON serialization
+}
+
 /**
  * Calculate ability modifier from ability score
  */

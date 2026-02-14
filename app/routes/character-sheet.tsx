@@ -2,7 +2,8 @@ import { useState, useMemo, useRef } from 'react';
 import { Download, Edit2, Save, X, Heart, Shield, Sword, ChevronDown, Upload, Dice5 } from 'lucide-react';
 import SpellEntry from '../components/SpellEntry';
 import { RollHistoryPanel } from '../components/RollHistoryPanel';
-import type { RollResult } from '../utils/diceRoller';
+import type { RollResult, SharedRollResult } from '../utils/diceRoller';
+import { useSharedRolls } from '../hooks/useSharedRolls';
 import {
   rollAbilityCheck,
   rollSavingThrow,
@@ -16,7 +17,7 @@ import {
   calculateSpellAttackBonus,
   formatSpellBonus,
 } from '../utils/diceRoller';
-import { getSpellAttackType, hasVariableDamage, detectHealingSpell, getHealingSpell } from '../utils/spellAttackConfig';
+import { getSpellAttackType, hasVariableDamage, detectHealingSpell, getHealingSpell, extractHealingFormulaFromDescription } from '../utils/spellAttackConfig';
 import { getBonusDamageFeatures, type BonusDamageFeature } from '../utils/bonusDamageFeatures';
 
 // D&D 5e Calculation Utilities
@@ -193,13 +194,6 @@ export default function CharacterSheet({ character: initialCharacter, onBack }: 
   const [pdfVersion, setPdfVersion] = useState<'2024' | 'original'>('2024');
   const [rollHistory, setRollHistory] = useState<RollResult[]>([]);
   const [historyMinimized, setHistoryMinimized] = useState(true);
-  const [openSmitePicker, setOpenSmitePicker] = useState<string | null>(null); // tracks which picker is open: "featureName-weaponIdx"
-
-  // Bonus damage features for weapon cards
-  const bonusDamageFeatures = useMemo(() =>
-    getBonusDamageFeatures(character.class, character.level, character.features, character.race),
-    [character.class, character.level, character.features, character.race]
-  );
 
   // Calculate derived values
   const proficiencyBonus = useMemo(() => calculateProficiencyBonus(character.level), [character.level]);
@@ -380,12 +374,6 @@ export default function CharacterSheet({ character: initialCharacter, onBack }: 
     addRoll(result);
   };
 
-  const handleRollBonusDamage = (featureName: string, dice: string) => {
-    const result = rollDamage(featureName, dice);
-    addRoll(result);
-    setOpenSmitePicker(null);
-  };
-
   const addRoll = (roll: RollResult) => {
     setRollHistory(prev => {
       const updated = [roll, ...prev];
@@ -394,6 +382,12 @@ export default function CharacterSheet({ character: initialCharacter, onBack }: 
     });
     // Auto-expand history panel when a roll is made
     setHistoryMinimized(false);
+    // Post to shared roll store
+    submitRoll({
+      ...roll,
+      characterName: character.characterName || 'Unknown',
+      timestamp: roll.timestamp.toISOString(),
+    });
   };
 
   const handleClearHistory = () => {
@@ -1162,6 +1156,14 @@ export default function CharacterSheet({ character: initialCharacter, onBack }: 
                                 altDamage = cantrip.altDamage || `1d${attackConfig.variableDamage[1].diceSides}`;
                               }
 
+                              // Detect healing
+                              const healingInfo = detectHealingSpell(cantrip.name, cantrip.description);
+                              let healingFormula: string | undefined = undefined;
+                              if (healingInfo.isHealing) {
+                                const healConfig = getHealingSpell(cantrip.name);
+                                healingFormula = (healConfig && healConfig.healingDice !== '0') ? healConfig.healingDice : (extractHealingFormulaFromDescription(cantrip.description) || undefined);
+                              }
+
                               return (
                                 <SpellEntry
                                   key={idx}
@@ -1182,6 +1184,10 @@ export default function CharacterSheet({ character: initialCharacter, onBack }: 
                                   spellSaveDC={cantrip.saveDC || character.spellSaveDC}
                                   onRollAttack={handleRollAttack}
                                   onRollDamage={handleRollDamage}
+                                  isHealing={healingInfo.isHealing}
+                                  healingFormula={healingFormula}
+                                  appliesModifier={healingInfo.appliesModifier}
+                                  onRollHealing={handleRollHealing}
                                   editable={false}
                                 />
                               );
@@ -1349,7 +1355,7 @@ export default function CharacterSheet({ character: initialCharacter, onBack }: 
                                   </div>
                                 </div>
 
-                                {/* Attack/Save Info */}
+                                {/* Attack/Save/Healing Info */}
                                 {(() => {
                                   const spellConfig = getSpellAttackType(spell.name);
                                   const attackType = spell.attackType || spellConfig.attackType;
@@ -1359,76 +1365,108 @@ export default function CharacterSheet({ character: initialCharacter, onBack }: 
                                     altDamage = spell.altDamage || `1d${spellConfig.variableDamage[1].diceSides}`;
                                   }
 
+                                  // Detect healing
+                                  const healingInfo = detectHealingSpell(spell.name, spell.description);
+                                  let healingFormula: string | undefined = undefined;
+                                  if (healingInfo.isHealing) {
+                                    const healConfig = getHealingSpell(spell.name);
+                                    healingFormula = (healConfig && healConfig.healingDice !== '0') ? healConfig.healingDice : (extractHealingFormulaFromDescription(spell.description) || undefined);
+                                  }
+
                                   // Show if spell has damage/saveDC OR is offensive in config
                                   const shouldShow = spell.damage || spell.saveDC || (attackType && attackType !== 'none');
 
-                                  return shouldShow ? (
-                                    <div className="bg-blue-50 border border-blue-200 rounded p-2 mb-3 space-y-2">
-                                      {attackType === 'attack' && character.spellAttackBonus && (
-                                        <div className="flex items-center gap-2">
-                                          <span className="text-xs font-medium text-blue-700">Spell Attack:</span>
-                                          <span className="text-xs font-bold text-blue-900">{character.spellAttackBonus} to hit</span>
-                                          <button
-                                            onClick={() => handleRollAttack(spell.name, character.spellAttackBonus)}
-                                            className="ml-auto p-1 rounded hover:bg-blue-200 text-blue-600 hover:text-blue-700 transition-all flex-shrink-0"
-                                            title={`Roll ${spell.name} Attack`}
-                                          >
-                                            <Dice5 className="w-3 h-3" />
-                                          </button>
-                                        </div>
-                                      )}
-
-                                      {attackType === 'save' && spell.saveDC && (
-                                        <div className="text-xs font-medium text-purple-700">
-                                          <span>{spell.saveDC}</span>
-                                          <span className="text-purple-900 font-bold"> Saving Throw</span>
-                                        </div>
-                                      )}
-
-                                      {attackType === 'auto-hit' && (
-                                        <div className="text-xs font-medium text-green-700">Auto-hit (no roll needed)</div>
-                                      )}
-
-                                      {/* Damage Roll Options */}
-                                      {spell.damage && (
-                                        <div className="pt-1 border-t border-blue-200 space-y-1">
-                                          {altDamage && hasVarDamage ? (
-                                            <div className="flex flex-wrap gap-1">
-                                              <span className="text-xs text-gray-600 w-full">Damage:</span>
-                                              <button
-                                                onClick={() => handleRollDamage(spell.name, spell.damage!, 8)}
-                                                className="px-2 py-0.5 text-xs bg-orange-500 hover:bg-orange-600 text-white rounded transition-colors flex items-center gap-1"
-                                                title={`Roll ${spell.name} Damage (d8)`}
-                                              >
-                                                <span>d8</span>
-                                                <Dice5 className="w-3 h-3" />
-                                              </button>
-                                              <button
-                                                onClick={() => handleRollDamage(spell.name, altDamage, 12)}
-                                                className="px-2 py-0.5 text-xs bg-orange-500 hover:bg-orange-600 text-white rounded transition-colors flex items-center gap-1"
-                                                title={`Roll ${spell.name} Damage (d12)`}
-                                              >
-                                                <span>d12</span>
-                                                <Dice5 className="w-3 h-3" />
-                                              </button>
-                                            </div>
-                                          ) : (
+                                  return (
+                                    <>
+                                      {shouldShow && (
+                                        <div className="bg-blue-50 border border-blue-200 rounded p-2 mb-3 space-y-2">
+                                          {attackType === 'attack' && character.spellAttackBonus && (
                                             <div className="flex items-center gap-2">
-                                              <span className="text-xs text-gray-600">Damage:</span>
-                                              <span className="text-xs text-gray-700 font-medium">{spell.damage}</span>
+                                              <span className="text-xs font-medium text-blue-700">Spell Attack:</span>
+                                              <span className="text-xs font-bold text-blue-900">{character.spellAttackBonus} to hit</span>
                                               <button
-                                                onClick={() => handleRollDamage(spell.name, spell.damage!)}
-                                                className="ml-auto p-1 rounded hover:bg-blue-200 text-orange-600 hover:text-orange-700 transition-all flex-shrink-0"
-                                                title={`Roll ${spell.name} Damage`}
+                                                onClick={() => handleRollAttack(spell.name, character.spellAttackBonus)}
+                                                className="ml-auto p-1 rounded hover:bg-blue-200 text-blue-600 hover:text-blue-700 transition-all flex-shrink-0"
+                                                title={`Roll ${spell.name} Attack`}
                                               >
                                                 <Dice5 className="w-3 h-3" />
                                               </button>
                                             </div>
                                           )}
+
+                                          {attackType === 'save' && spell.saveDC && (
+                                            <div className="text-xs font-medium text-purple-700">
+                                              <span>{spell.saveDC}</span>
+                                              <span className="text-purple-900 font-bold"> Saving Throw</span>
+                                            </div>
+                                          )}
+
+                                          {attackType === 'auto-hit' && (
+                                            <div className="text-xs font-medium text-green-700">Auto-hit (no roll needed)</div>
+                                          )}
+
+                                          {/* Damage Roll Options */}
+                                          {spell.damage && (
+                                            <div className="pt-1 border-t border-blue-200 space-y-1">
+                                              {altDamage && hasVarDamage ? (
+                                                <div className="flex flex-wrap gap-1">
+                                                  <span className="text-xs text-gray-600 w-full">Damage:</span>
+                                                  <button
+                                                    onClick={() => handleRollDamage(spell.name, spell.damage!, 8)}
+                                                    className="px-2 py-0.5 text-xs bg-orange-500 hover:bg-orange-600 text-white rounded transition-colors flex items-center gap-1"
+                                                    title={`Roll ${spell.name} Damage (d8)`}
+                                                  >
+                                                    <span>d8</span>
+                                                    <Dice5 className="w-3 h-3" />
+                                                  </button>
+                                                  <button
+                                                    onClick={() => handleRollDamage(spell.name, altDamage, 12)}
+                                                    className="px-2 py-0.5 text-xs bg-orange-500 hover:bg-orange-600 text-white rounded transition-colors flex items-center gap-1"
+                                                    title={`Roll ${spell.name} Damage (d12)`}
+                                                  >
+                                                    <span>d12</span>
+                                                    <Dice5 className="w-3 h-3" />
+                                                  </button>
+                                                </div>
+                                              ) : (
+                                                <div className="flex items-center gap-2">
+                                                  <span className="text-xs text-gray-600">Damage:</span>
+                                                  <span className="text-xs text-gray-700 font-medium">{spell.damage}</span>
+                                                  <button
+                                                    onClick={() => handleRollDamage(spell.name, spell.damage!)}
+                                                    className="ml-auto p-1 rounded hover:bg-blue-200 text-orange-600 hover:text-orange-700 transition-all flex-shrink-0"
+                                                    title={`Roll ${spell.name} Damage`}
+                                                  >
+                                                    <Dice5 className="w-3 h-3" />
+                                                  </button>
+                                                </div>
+                                              )}
+                                            </div>
+                                          )}
                                         </div>
                                       )}
-                                    </div>
-                                  ) : null;
+
+                                      {/* Healing Roll */}
+                                      {healingInfo.isHealing && healingFormula && (
+                                        <div className="bg-green-50 border border-green-300 rounded p-2 mb-3">
+                                          <div className="flex items-center gap-2">
+                                            <span className="text-xs text-green-700">Healing:</span>
+                                            <span className="text-xs text-green-800 font-medium">
+                                              {healingFormula}{healingInfo.appliesModifier ? ' + modifier' : ''}
+                                            </span>
+                                            <button
+                                              onClick={() => handleRollHealing(spell.name, healingFormula!, healingInfo.appliesModifier)}
+                                              className="ml-auto px-2 py-0.5 text-xs bg-green-500 hover:bg-green-600 text-white rounded transition-colors flex items-center gap-1"
+                                              title={`Roll ${spell.name} Healing`}
+                                            >
+                                              <span>Roll Healing</span>
+                                              <Dice5 className="w-3 h-3" />
+                                            </button>
+                                          </div>
+                                        </div>
+                                      )}
+                                    </>
+                                  );
                                 })()}
 
                                 <div className="text-sm text-gray-600 space-y-1">
@@ -1779,7 +1817,7 @@ export default function CharacterSheet({ character: initialCharacter, onBack }: 
 
       {/* Roll History Panel */}
       <RollHistoryPanel
-        rolls={rollHistory}
+        rolls={combinedRolls}
         minimized={historyMinimized}
         onToggleMinimize={() => setHistoryMinimized(!historyMinimized)}
         onClearHistory={handleClearHistory}

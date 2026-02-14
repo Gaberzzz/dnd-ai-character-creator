@@ -9,5 +9,9 @@ export default [
     {
         path: "/form-field-extractor",
         file: "routes/form-field-extractor.tsx"
+    },
+    {
+        path: "/api/rolls",
+        file: "routes/api.rolls.tsx"
     }
 ] satisfies RouteConfig;
