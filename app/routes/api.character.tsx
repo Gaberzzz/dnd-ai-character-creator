@@ -96,7 +96,8 @@ const tools = [
 // Execute tool calls and return results
 async function executeTool(
   toolName: string,
-  toolInput: string | Record<string, any>
+  toolInput: string | Record<string, any>,
+  apiKey: string
 ): Promise<string> {
   try {
     // Parse arguments if it's a string (from OpenRouter)
@@ -111,12 +112,12 @@ async function executeTool(
           level: args.level,
           school: args.school,
           className: args.className,
-        });
+        }, apiKey);
         return JSON.stringify(spells.length > 0 ? spells : { error: "No spells found" });
 
       case "search_feats":
         if (!args.query) return JSON.stringify({ error: "Missing required parameter: query" });
-        const feats = await searchFeats(args.query);
+        const feats = await searchFeats(args.query, apiKey);
         return JSON.stringify(feats.length > 0 ? feats : { error: "No feats found" });
 
       case "get_class_features":
@@ -126,7 +127,7 @@ async function executeTool(
 
       case "search_equipment":
         if (!args.query) return JSON.stringify({ error: "Missing required parameter: query" });
-        const equipment = await searchEquipment(args.query);
+        const equipment = await searchEquipment(args.query, apiKey);
         return JSON.stringify(equipment.length > 0 ? equipment : { error: "No equipment found" });
 
       default:
@@ -315,7 +316,7 @@ Return character data in JSON format:
 
         // Execute each tool call
         for (const toolCall of assistantMessage.tool_calls) {
-          const toolResult = await executeTool(toolCall.function.name, toolCall.function.arguments);
+          const toolResult = await executeTool(toolCall.function.name, toolCall.function.arguments, apiKey as string);
           console.log(`📍 Tool "${toolCall.function.name}" result:`, toolResult);
 
           // Add tool result to conversation with correct OpenAI format

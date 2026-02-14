@@ -1,3 +1,5 @@
+import { Dice5 } from 'lucide-react';
+
 interface AbilityScoreBoxProps {
   name: string;
   abbreviation: string;
@@ -5,6 +7,7 @@ interface AbilityScoreBoxProps {
   modifier: string;
   onScoreChange?: (value: string) => void;
   onModChange?: (value: string) => void;
+  onRoll?: (abilityName: string, modifier: string) => void;
   editable?: boolean;
 }
 
@@ -15,6 +18,7 @@ export default function AbilityScoreBox({
   modifier,
   onScoreChange,
   onModChange,
+  onRoll,
   editable = false,
 }: AbilityScoreBoxProps) {
   return (
@@ -44,7 +48,18 @@ export default function AbilityScoreBox({
             className="w-full bg-gray-800 text-orange-300 font-semibold text-center border-0"
           />
         ) : (
-          <div className="text-orange-300 font-semibold">{modifier}</div>
+          <div className="flex items-center justify-between group cursor-default">
+            <div className="text-orange-300 font-semibold flex-1">{modifier}</div>
+            {!editable && onRoll && (
+              <button
+                onClick={() => onRoll(name, modifier)}
+                className="ml-1 p-0.5 rounded opacity-0 group-hover:opacity-100 hover:bg-orange-500 text-orange-300 hover:text-white transition-all"
+                title={`Roll ${name} Check`}
+              >
+                <Dice5 className="w-4 h-4" />
+              </button>
+            )}
+          </div>
         )}
       </div>
     </div>

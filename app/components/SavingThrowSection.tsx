@@ -1,7 +1,10 @@
+import { Dice5 } from 'lucide-react';
+
 interface SavingThrowSectionProps {
   savingThrows: Record<string, { proficient: boolean; value: string }>;
   onProficientChange?: (name: string, proficient: boolean) => void;
   onValueChange?: (name: string, value: string) => void;
+  onRoll?: (name: string, value: string) => void;
   editable?: boolean;
 }
 
@@ -9,6 +12,7 @@ export default function SavingThrowSection({
   savingThrows,
   onProficientChange,
   onValueChange,
+  onRoll,
   editable = false,
 }: SavingThrowSectionProps) {
   return (
@@ -39,9 +43,20 @@ export default function SavingThrowSection({
                 className="w-10 bg-gray-800 text-orange-300 font-semibold text-center border border-orange-400 rounded px-1 text-xs"
               />
             ) : (
-              <span className="text-orange-300 font-semibold text-xs w-10 text-right">
-                {data.value}
-              </span>
+              <div className="flex items-center gap-1 group">
+                <span className="text-orange-300 font-semibold text-xs w-10 text-right group-hover:text-orange-200 transition-colors cursor-default">
+                  {data.value}
+                </span>
+                {!editable && onRoll && (
+                  <button
+                    onClick={() => onRoll(name, data.value)}
+                    className="p-0.5 rounded opacity-0 group-hover:opacity-100 hover:bg-orange-500 text-orange-300 hover:text-white transition-all flex-shrink-0"
+                    title={`Roll ${name} Save`}
+                  >
+                    <Dice5 className="w-3 h-3" />
+                  </button>
+                )}
+              </div>
             )}
           </div>
         ))}

@@ -1,13 +1,29 @@
-import { useState, useMemo } from 'react';
-import { Download, Edit2, Save, X, Heart, Shield, Sword, ChevronDown } from 'lucide-react';
+import { useState, useMemo, useRef } from 'react';
+import { Download, Edit2, Save, X, Heart, Shield, Sword, ChevronDown, Upload, Dice5 } from 'lucide-react';
 import SpellEntry from '../components/SpellEntry';
+import { RollHistoryPanel } from '../components/RollHistoryPanel';
+import type { RollResult } from '../utils/diceRoller';
+import {
+  rollAbilityCheck,
+  rollSavingThrow,
+  rollSkillCheck,
+  rollAttack,
+  rollDamage,
+  rollHealing,
+  calculateAbilityModifier,
+  calculateProficiencyBonus,
+  calculateSpellSaveDC,
+  calculateSpellAttackBonus,
+  formatSpellBonus,
+} from '../utils/diceRoller';
+import { getSpellAttackType, hasVariableDamage, detectHealingSpell, getHealingSpell } from '../utils/spellAttackConfig';
 
 // D&D 5e Calculation Utilities
 const calculateModifier = (abilityScore: number): number => {
   return Math.floor((abilityScore - 10) / 2);
 };
 
-const calculateProficiencyBonus = (level: string): number => {
+const calculateProficiencyBonusFromLevel = (level: string): number => {
   const levelNum = parseInt(level);
   if (!levelNum) return 2;
   if (levelNum <= 4) return 2;
@@ -22,6 +38,29 @@ const getAbilityModifier = (character: CharacterData, abilityKey: 'strength' | '
   const score = parseInt(scoreStr) || 0;
   const mod = calculateModifier(score);
   return mod >= 0 ? `+${mod}` : `${mod}`;
+};
+
+/**
+ * Get the ability score for spellcasting based on spellcastingAbility
+ */
+const getSpellcastingAbilityScore = (character: CharacterData): number => {
+  const ability = character.spellcastingAbility.toLowerCase().trim();
+  switch (ability) {
+    case 'str':
+      return parseInt(character.strength) || 10;
+    case 'dex':
+      return parseInt(character.dexterity) || 10;
+    case 'con':
+      return parseInt(character.constitution) || 10;
+    case 'int':
+      return parseInt(character.intelligence) || 10;
+    case 'wis':
+      return parseInt(character.wisdom) || 10;
+    case 'cha':
+      return parseInt(character.charisma) || 10;
+    default:
+      return 10;
+  }
 };
 
 interface Feature {
@@ -87,6 +126,11 @@ interface CharacterData {
     description: string;
     damage?: string;
     saveDC?: string;
+    concentration?: boolean;
+    ritual?: boolean;
+    components?: string;
+    attackType?: 'attack' | 'save' | 'auto-hit' | 'none'; // How the spell is resolved
+    altDamage?: string; // Alternative damage for variable dice (e.g., for Toll the Dead)
   }>;
   spells: Array<{
     name: string;
@@ -98,6 +142,11 @@ interface CharacterData {
     description: string;
     damage?: string;
     saveDC?: string;
+    concentration?: boolean;
+    ritual?: boolean;
+    components?: string;
+    attackType?: 'attack' | 'save' | 'auto-hit' | 'none'; // How the spell is resolved
+    altDamage?: string; // Alternative damage for variable dice
   }>;
   spellcastingAbility: string;
   spellSaveDC: string;
@@ -140,6 +189,9 @@ export default function CharacterSheet({ character: initialCharacter, onBack }: 
   const [isEditing, setIsEditing] = useState(false);
   const [activeTab, setActiveTab] = useState<'actions' | 'spells' | 'inventory' | 'features'>('actions');
   const [expandedFeatures, setExpandedFeatures] = useState<{ [key: number]: boolean }>({});
+  const [pdfVersion, setPdfVersion] = useState<'2024' | 'original'>('2024');
+  const [rollHistory, setRollHistory] = useState<RollResult[]>([]);
+  const [historyMinimized, setHistoryMinimized] = useState(true);
 
   // Calculate derived values
   const proficiencyBonus = useMemo(() => calculateProficiencyBonus(character.level), [character.level]);
@@ -245,6 +297,9 @@ export default function CharacterSheet({ character: initialCharacter, onBack }: 
       range: 'Self',
       duration: 'Instantaneous',
       description: '',
+      concentration: false,
+      ritual: false,
+      components: '',
     };
     handleCharacterChange('spells', [...character.spells, newSpell]);
   };
@@ -282,13 +337,67 @@ export default function CharacterSheet({ character: initialCharacter, onBack }: 
     }));
   };
 
+  // Roll handlers
+  const parseModifier = (modString: string): number => {
+    const match = modString.match(/([+-]?\d+)/);
+    return match ? parseInt(match[1], 10) : 0;
+  };
+
+  const handleRollAbilityCheck = (abilityName: string, modifier: string) => {
+    const mod = parseModifier(modifier);
+    const result = rollAbilityCheck(abilityName, mod);
+    addRoll(result);
+  };
+
+  const handleRollSavingThrow = (throwName: string, modifier: string) => {
+    const mod = parseModifier(modifier);
+    const result = rollSavingThrow(throwName, mod);
+    addRoll(result);
+  };
+
+  const handleRollSkillCheck = (skillName: string, modifier: string) => {
+    const mod = parseModifier(modifier);
+    const result = rollSkillCheck(skillName, mod);
+    addRoll(result);
+  };
+
+  const handleRollAttack = (weaponName: string, bonus: string) => {
+    const bonus_num = parseModifier(bonus);
+    const result = rollAttack(weaponName, bonus_num);
+    addRoll(result);
+  };
+
+  const handleRollDamage = (weaponName: string, damageFormula: string, diceSides?: number) => {
+    const result = rollDamage(weaponName, damageFormula, diceSides);
+    addRoll(result);
+  };
+
+  const addRoll = (roll: RollResult) => {
+    setRollHistory(prev => {
+      const updated = [roll, ...prev];
+      // Keep only last 50 rolls
+      return updated.slice(0, 50);
+    });
+    // Auto-expand history panel when a roll is made
+    setHistoryMinimized(false);
+  };
+
+  const handleClearHistory = () => {
+    setRollHistory([]);
+  };
+
   const exportToPDF = async () => {
     try {
       const { PDFDocument } = await import('pdf-lib');
-      const { mapCharacterToPDF } = await import('../utils/pdfFieldMapping');
+      const { mapCharacterToPDF, mapCharacterToPDF2024 } = await import('../utils/pdfFieldMapping');
+
+      // Select PDF file and mapping function based on version
+      const pdfPath = pdfVersion === '2024' 
+        ? '/DnD_2024_Character-Sheet - fillable - V2.pdf'
+        : '/dnd_character_sheet_fillable.pdf';
+      const mappingFunction = pdfVersion === '2024' ? mapCharacterToPDF2024 : mapCharacterToPDF;
 
       // Load the PDF template
-      const pdfPath = '/dnd_character_sheet_fillable.pdf';
       const pdfResponse = await fetch(pdfPath);
       if (!pdfResponse.ok) {
         throw new Error(`Failed to load PDF template: ${pdfResponse.statusText}`);
@@ -300,7 +409,12 @@ export default function CharacterSheet({ character: initialCharacter, onBack }: 
       const form = pdfDoc.getForm();
 
       // Map character data to PDF fields
-      const pdfData = mapCharacterToPDF(character);
+      const pdfData = mappingFunction(character);
+
+      // Define fields that should have smaller font sizes
+      const smallFontFields = pdfVersion === '2024' 
+        ? ['CLASS FEATURES 1', 'CLASS FEATURES 2', 'SPECIES TRAITS', 'FEATS', 'EQUIPMENT', 'PERSONALITY', 'IDEALS', 'BONDS', 'FLAWS']
+        : ['Features and Traits', 'Equipment', 'AttacksSpellcasting', 'Backstory'];
 
       // Fill form fields
       Object.entries(pdfData).forEach(([fieldName, value]) => {
@@ -325,6 +439,11 @@ export default function CharacterSheet({ character: initialCharacter, onBack }: 
             try {
               const textField = form.getTextField(fieldName);
               textField.setText(String(value));
+              
+              // Reduce font size for large text fields to fit more content
+              if (smallFontFields.includes(fieldName)) {
+                textField.setFontSize(8);
+              }
             } catch {
               // Field might be a dropdown or other type, skip
             }
@@ -335,7 +454,7 @@ export default function CharacterSheet({ character: initialCharacter, onBack }: 
       });
 
       // Flatten the form to prevent further editing
-      form.flatten();
+      // form.flatten();
 
       // Save and download
       const pdfBytes2 = await pdfDoc.save();
@@ -345,7 +464,8 @@ export default function CharacterSheet({ character: initialCharacter, onBack }: 
       // Create download link
       const link = document.createElement('a');
       link.href = url;
-      link.download = `${character.characterName}_D&D_Sheet.pdf`;
+      const versionSuffix = pdfVersion === '2024' ? '_2024' : '';
+      link.download = `${character.characterName}_D&D_Sheet${versionSuffix}.pdf`;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
@@ -359,6 +479,57 @@ export default function CharacterSheet({ character: initialCharacter, onBack }: 
   const sortedSkills = useMemo(() => {
     return Object.entries(character.skills).sort(([a], [b]) => a.localeCompare(b));
   }, [character.skills]);
+
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const exportToJSON = () => {
+    try {
+      const dataStr = JSON.stringify(character, null, 2);
+      const blob = new Blob([dataStr], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `${character.characterName}_character_data.json`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error('Error exporting JSON:', error);
+      alert(`Failed to export character data: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  };
+
+  const importFromJSON = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const jsonData = JSON.parse(e.target?.result as string);
+        
+        // Validate that it's a valid character data object
+        if (!jsonData.characterName) {
+          throw new Error('Invalid character data: missing characterName field');
+        }
+
+        // Set the character data
+        setCharacter(jsonData as CharacterData);
+        alert(`Successfully imported character: ${jsonData.characterName}`);
+      } catch (error) {
+        console.error('Error importing JSON:', error);
+        alert(`Failed to import character data: ${error instanceof Error ? error.message : 'Invalid JSON file'}`);
+      }
+    };
+    reader.readAsText(file);
+
+    // Reset file input so the same file can be imported again
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  };
 
   return (
     <div className="min-h-screen bg-gray-100">
@@ -483,10 +654,35 @@ export default function CharacterSheet({ character: initialCharacter, onBack }: 
                   <Edit2 size={16} className="inline mr-1" />
                   Edit Character
                 </button>
-                <button onClick={exportToPDF} className="px-4 py-2 bg-gray-200 hover:bg-gray-300 text-gray-700 rounded-md text-sm font-medium transition-colors">
-                  <Download size={16} className="inline mr-1" />
-                  Export PDF
-                </button>
+                <div className="flex items-center gap-2">
+                  <select
+                    value={pdfVersion}
+                    onChange={(e) => setPdfVersion(e.target.value as '2024' | 'original')}
+                    className="px-3 py-2 border border-gray-300 rounded-md text-sm font-medium bg-white text-gray-700"
+                  >
+                    <option value="2024">2024 Edition (Default)</option>
+                    <option value="original">Original Edition</option>
+                  </select>
+                  <button onClick={exportToPDF} className="px-4 py-2 bg-gray-200 hover:bg-gray-300 text-gray-700 rounded-md text-sm font-medium transition-colors">
+                    <Download size={16} className="inline mr-1" />
+                    Export PDF
+                  </button>
+                  <button onClick={exportToJSON} className="px-4 py-2 bg-gray-200 hover:bg-gray-300 text-gray-700 rounded-md text-sm font-medium transition-colors">
+                    <Download size={16} className="inline mr-1" />
+                    Export JSON
+                  </button>
+                  <button onClick={() => fileInputRef.current?.click()} className="px-4 py-2 bg-gray-200 hover:bg-gray-300 text-gray-700 rounded-md text-sm font-medium transition-colors">
+                    <Upload size={16} className="inline mr-1" />
+                    Import JSON
+                  </button>
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept=".json"
+                    onChange={importFromJSON}
+                    className="hidden"
+                  />
+                </div>
               </>
             )}
             {onBack && (
@@ -519,7 +715,7 @@ export default function CharacterSheet({ character: initialCharacter, onBack }: 
                   { name: 'WIS', score: character.wisdom, mod: abilityModifiers.wisdom, key: 'wisdom' },
                   { name: 'CHA', score: character.charisma, mod: abilityModifiers.charisma, key: 'charisma' }
                 ].map((ability) => (
-                  <div key={ability.name} className="bg-gray-50 rounded-lg p-3 text-center border border-gray-200">
+                  <div key={ability.name} className="bg-gray-50 rounded-lg p-3 text-center border border-gray-200 group">
                     <div className="text-xs font-bold text-gray-600 mb-1">{ability.name}</div>
                     {isEditing ? (
                       <>
@@ -533,7 +729,16 @@ export default function CharacterSheet({ character: initialCharacter, onBack }: 
                       </>
                     ) : (
                       <>
-                        <div className="text-2xl font-bold text-gray-900 mb-1">{ability.mod >= 0 ? '+' : ''}{ability.mod}</div>
+                        <div className="flex items-center justify-center gap-1">
+                          <div className="text-2xl font-bold text-gray-900">{ability.mod >= 0 ? '+' : ''}{ability.mod}</div>
+                          <button
+                            onClick={() => handleRollAbilityCheck(ability.name, `${ability.mod >= 0 ? '+' : ''}${ability.mod}`)}
+                            className="p-1 rounded opacity-0 group-hover:opacity-100 hover:bg-blue-100 text-blue-600 hover:text-blue-700 transition-all flex-shrink-0"
+                            title={`Roll ${ability.name} Check`}
+                          >
+                            <Dice5 className="w-4 h-4" />
+                          </button>
+                        </div>
                         <div className="text-sm text-gray-500">{ability.score}</div>
                       </>
                     )}
@@ -565,7 +770,7 @@ export default function CharacterSheet({ character: initialCharacter, onBack }: 
               <h3 className="text-sm font-bold text-gray-700 uppercase mb-3">Saving Throws</h3>
               <div className="space-y-2">
                 {Object.entries(character.savingThrows).map(([name, data]) => (
-                  <div key={name} className="flex items-center gap-2">
+                  <div key={name} className="flex items-center gap-2 group">
                     <input
                       type="checkbox"
                       checked={data.proficient}
@@ -576,7 +781,18 @@ export default function CharacterSheet({ character: initialCharacter, onBack }: 
                     <span className="text-sm font-medium text-gray-900 flex-1 capitalize">
                       {name}
                     </span>
-                    <span className="text-sm font-bold text-gray-900">{data.value}</span>
+                    <div className="flex items-center gap-1">
+                      <span className="text-sm font-bold text-gray-900 group-hover:text-blue-600 transition-colors">{data.value}</span>
+                      {!isEditing && (
+                        <button
+                          onClick={() => handleRollSavingThrow(name, data.value)}
+                          className="p-1 rounded opacity-0 group-hover:opacity-100 hover:bg-blue-100 text-blue-600 hover:text-blue-700 transition-all flex-shrink-0"
+                          title={`Roll ${name.charAt(0).toUpperCase() + name.slice(1)} Save`}
+                        >
+                          <Dice5 className="w-4 h-4" />
+                        </button>
+                      )}
+                    </div>
                   </div>
                 ))}
               </div>
@@ -587,7 +803,7 @@ export default function CharacterSheet({ character: initialCharacter, onBack }: 
               <h3 className="text-sm font-bold text-gray-700 uppercase mb-3">Skills</h3>
               <div className="space-y-2 max-h-80 overflow-y-auto">
                 {sortedSkills.map(([skillName, skillData]) => (
-                  <div key={skillName} className="flex items-center gap-2">
+                  <div key={skillName} className="flex items-center gap-2 group">
                     <input
                       type="checkbox"
                       checked={skillData.proficient}
@@ -599,7 +815,18 @@ export default function CharacterSheet({ character: initialCharacter, onBack }: 
                       {skillName.replace(/([A-Z])/g, ' $1').trim()}
                       <span className="text-xs text-gray-500 ml-1">({skillToAbility[skillName]})</span>
                     </span>
-                    <span className="text-sm font-bold text-gray-900">{skillData.value}</span>
+                    <div className="flex items-center gap-1">
+                      <span className="text-sm font-bold text-gray-900 group-hover:text-blue-600 transition-colors">{skillData.value}</span>
+                      {!isEditing && (
+                        <button
+                          onClick={() => handleRollSkillCheck(skillName.replace(/([A-Z])/g, ' $1').trim(), skillData.value)}
+                          className="p-1 rounded opacity-0 group-hover:opacity-100 hover:bg-blue-100 text-blue-600 hover:text-blue-700 transition-all flex-shrink-0"
+                          title={`Roll ${skillName.replace(/([A-Z])/g, ' $1').trim()} Check`}
+                        >
+                          <Dice5 className="w-4 h-4" />
+                        </button>
+                      )}
+                    </div>
                   </div>
                 ))}
               </div>
@@ -657,7 +884,16 @@ export default function CharacterSheet({ character: initialCharacter, onBack }: 
                                     className="w-20 text-sm font-medium text-blue-600 bg-white border border-gray-300 rounded px-2 py-1 ml-2"
                                   />
                                 ) : (
-                                  <span className="text-sm font-medium text-blue-600">{attack.atkBonus} to hit</span>
+                                  <div className="flex items-center gap-1 group">
+                                    <span className="text-sm font-medium text-blue-600 group-hover:text-blue-700 transition-colors">{attack.atkBonus} to hit</span>
+                                    <button
+                                      onClick={() => handleRollAttack(attack.name, attack.atkBonus)}
+                                      className="p-1 rounded opacity-0 group-hover:opacity-100 hover:bg-blue-100 text-blue-600 hover:text-blue-700 transition-all flex-shrink-0"
+                                      title={`Roll ${attack.name} Attack`}
+                                    >
+                                      <Dice5 className="w-4 h-4" />
+                                    </button>
+                                  </div>
                                 )}
                               </div>
                               {isEditing ? (
@@ -668,7 +904,16 @@ export default function CharacterSheet({ character: initialCharacter, onBack }: 
                                   className="w-full text-sm text-gray-600 bg-white border border-gray-300 rounded px-2 py-1"
                                 />
                               ) : (
-                                <div className="text-sm text-gray-600">{attack.damage}</div>
+                                <div className="flex items-center gap-1 group">
+                                  <div className="text-sm text-gray-600 group-hover:text-gray-700 transition-colors flex-1">{attack.damage}</div>
+                                  <button
+                                    onClick={() => handleRollDamage(attack.name, attack.damage)}
+                                    className="p-1 rounded opacity-0 group-hover:opacity-100 hover:bg-blue-100 text-blue-600 hover:text-blue-700 transition-all flex-shrink-0"
+                                    title={`Roll ${attack.name} Damage`}
+                                  >
+                                    <Dice5 className="w-4 h-4" />
+                                  </button>
+                                </div>
                               )}
                             </div>
                           ))}
@@ -681,30 +926,198 @@ export default function CharacterSheet({ character: initialCharacter, onBack }: 
                     {character.cantrips && character.cantrips.length > 0 && (
                       <div>
                         <h3 className="text-lg font-bold text-gray-900 mb-4">Cantrips</h3>
-                        <div className="space-y-3">
-                          {character.cantrips.map((cantrip, idx) => (
-                            <div key={idx} className="bg-purple-50 border border-purple-200 rounded-lg p-4">
-                              <div className="flex items-start justify-between mb-2">
-                                <div>
-                                  <div className="font-bold text-gray-900">{cantrip.name}</div>
-                                  <div className="text-xs text-gray-500">
-                                    {cantrip.school} • {cantrip.castingTime}
+                        {isEditing ? (
+                          <div className="space-y-3">
+                            {character.cantrips.map((cantrip, idx) => (
+                              <div key={idx} className="bg-gray-50 border border-gray-200 rounded-lg p-4">
+                                <div className="flex items-start justify-between mb-2">
+                                  <div className="flex-1">
+                                    <input
+                                      type="text"
+                                      value={cantrip.name}
+                                      onChange={(e) => {
+                                        const newCantrips = [...character.cantrips];
+                                        newCantrips[idx] = { ...newCantrips[idx], name: e.target.value };
+                                        handleCharacterChange('cantrips', newCantrips);
+                                      }}
+                                      className="w-full font-bold text-gray-900 bg-white border border-gray-300 rounded px-2 py-1 mb-1"
+                                    />
+                                    <div className="text-xs text-gray-500">
+                                      <input
+                                        type="text"
+                                        value={cantrip.school}
+                                        onChange={(e) => {
+                                          const newCantrips = [...character.cantrips];
+                                          newCantrips[idx] = { ...newCantrips[idx], school: e.target.value };
+                                          handleCharacterChange('cantrips', newCantrips);
+                                        }}
+                                        placeholder="School"
+                                        className="w-full bg-white border border-gray-300 rounded px-1 py-0.5 mt-1"
+                                      />
+                                    </div>
+                                  </div>
+                                  <button
+                                    onClick={() => {
+                                      const newCantrips = character.cantrips.filter((_, i) => i !== idx);
+                                      handleCharacterChange('cantrips', newCantrips);
+                                    }}
+                                    className="text-red-600 hover:text-red-700 ml-2"
+                                  >
+                                    <X size={16} />
+                                  </button>
+                                </div>
+                                <div className="space-y-1 text-xs mb-2">
+                                  <input
+                                    type="text"
+                                    value={cantrip.castingTime}
+                                    onChange={(e) => {
+                                      const newCantrips = [...character.cantrips];
+                                      newCantrips[idx] = { ...newCantrips[idx], castingTime: e.target.value };
+                                      handleCharacterChange('cantrips', newCantrips);
+                                    }}
+                                    placeholder="Casting Time"
+                                    className="w-full bg-white border border-gray-300 rounded px-1 py-0.5"
+                                  />
+                                  <input
+                                    type="text"
+                                    value={cantrip.range}
+                                    onChange={(e) => {
+                                      const newCantrips = [...character.cantrips];
+                                      newCantrips[idx] = { ...newCantrips[idx], range: e.target.value };
+                                      handleCharacterChange('cantrips', newCantrips);
+                                    }}
+                                    placeholder="Range"
+                                    className="w-full bg-white border border-gray-300 rounded px-1 py-0.5"
+                                  />
+                                  <input
+                                    type="text"
+                                    value={cantrip.duration}
+                                    onChange={(e) => {
+                                      const newCantrips = [...character.cantrips];
+                                      newCantrips[idx] = { ...newCantrips[idx], duration: e.target.value };
+                                      handleCharacterChange('cantrips', newCantrips);
+                                    }}
+                                    placeholder="Duration"
+                                    className="w-full bg-white border border-gray-300 rounded px-1 py-0.5"
+                                  />
+                                  <input
+                                    type="text"
+                                    value={cantrip.damage || ''}
+                                    onChange={(e) => {
+                                      const newCantrips = [...character.cantrips];
+                                      newCantrips[idx] = { ...newCantrips[idx], damage: e.target.value };
+                                      handleCharacterChange('cantrips', newCantrips);
+                                    }}
+                                    placeholder="Damage (e.g., 1d8 fire)"
+                                    className="w-full bg-white border border-gray-300 rounded px-1 py-0.5"
+                                  />
+                                  <input
+                                    type="text"
+                                    value={cantrip.saveDC || ''}
+                                    onChange={(e) => {
+                                      const newCantrips = [...character.cantrips];
+                                      newCantrips[idx] = { ...newCantrips[idx], saveDC: e.target.value };
+                                      handleCharacterChange('cantrips', newCantrips);
+                                    }}
+                                    placeholder="Save DC (e.g., DEX 15)"
+                                    className="w-full bg-white border border-gray-300 rounded px-1 py-0.5"
+                                  />
+                                  <input
+                                    type="text"
+                                    value={cantrip.components || ''}
+                                    onChange={(e) => {
+                                      const newCantrips = [...character.cantrips];
+                                      newCantrips[idx] = { ...newCantrips[idx], components: e.target.value };
+                                      handleCharacterChange('cantrips', newCantrips);
+                                    }}
+                                    placeholder="Components (e.g., V, S, M)"
+                                    className="w-full bg-white border border-gray-300 rounded px-1 py-0.5"
+                                  />
+                                  <div className="flex gap-2">
+                                    <label className="flex items-center gap-1 cursor-pointer">
+                                      <input
+                                        type="checkbox"
+                                        checked={cantrip.concentration || false}
+                                        onChange={(e) => {
+                                          const newCantrips = [...character.cantrips];
+                                          newCantrips[idx] = {
+                                            ...newCantrips[idx],
+                                            concentration: e.target.checked,
+                                          };
+                                          handleCharacterChange('cantrips', newCantrips);
+                                        }}
+                                        className="w-4 h-4"
+                                      />
+                                      <span className="text-xs">Concentration</span>
+                                    </label>
+                                    <label className="flex items-center gap-1 cursor-pointer">
+                                      <input
+                                        type="checkbox"
+                                        checked={cantrip.ritual || false}
+                                        onChange={(e) => {
+                                          const newCantrips = [...character.cantrips];
+                                          newCantrips[idx] = {
+                                            ...newCantrips[idx],
+                                            ritual: e.target.checked,
+                                          };
+                                          handleCharacterChange('cantrips', newCantrips);
+                                        }}
+                                        className="w-4 h-4"
+                                      />
+                                      <span className="text-xs">Ritual</span>
+                                    </label>
                                   </div>
                                 </div>
+                                <textarea
+                                  value={cantrip.description}
+                                  onChange={(e) => {
+                                    const newCantrips = [...character.cantrips];
+                                    newCantrips[idx] = { ...newCantrips[idx], description: e.target.value };
+                                    handleCharacterChange('cantrips', newCantrips);
+                                  }}
+                                  placeholder="Description"
+                                  className="w-full bg-white border border-gray-300 rounded px-2 py-1 text-xs min-h-20"
+                                />
                               </div>
-                              <div className="text-sm text-gray-600 space-y-1">
-                                <div><span className="font-medium">Range:</span> {cantrip.range}</div>
-                                {cantrip.damage && (
-                                  <div><span className="font-medium">Damage:</span> {cantrip.damage}</div>
-                                )}
-                                {cantrip.saveDC && (
-                                  <div><span className="font-medium">Save DC:</span> {cantrip.saveDC}</div>
-                                )}
-                                <p className="mt-2 text-xs">{cantrip.description}</p>
-                              </div>
-                            </div>
-                          ))}
-                        </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <div className="space-y-3">
+                            {character.cantrips.map((cantrip, idx) => {
+                              const attackConfig = getSpellAttackType(cantrip.name);
+                              const hasVarDamage = hasVariableDamage(cantrip.name);
+                              // Compute altDamage from config if not already set
+                              let altDamage: string | undefined = undefined;
+                              if (hasVarDamage && attackConfig.variableDamage && attackConfig.variableDamage.length > 1) {
+                                altDamage = cantrip.altDamage || `1d${attackConfig.variableDamage[1].diceSides}`;
+                              }
+
+                              return (
+                                <SpellEntry
+                                  key={idx}
+                                  name={cantrip.name}
+                                  level={cantrip.level}
+                                  school={cantrip.school}
+                                  castingTime={cantrip.castingTime}
+                                  range={cantrip.range}
+                                  duration={cantrip.duration}
+                                  description={cantrip.description}
+                                  concentration={cantrip.concentration}
+                                  ritual={cantrip.ritual}
+                                  components={cantrip.components}
+                                  attackType={cantrip.attackType || attackConfig.attackType}
+                                  damage={cantrip.damage}
+                                  altDamage={altDamage}
+                                  spellAttackBonus={character.spellAttackBonus}
+                                  spellSaveDC={cantrip.saveDC || character.spellSaveDC}
+                                  onRollAttack={handleRollAttack}
+                                  onRollDamage={handleRollDamage}
+                                  editable={false}
+                                />
+                              );
+                            })}
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>
@@ -806,6 +1219,47 @@ export default function CharacterSheet({ character: initialCharacter, onBack }: 
                                     placeholder="Save DC (e.g., DEX 15)"
                                     className="w-full bg-white border border-gray-300 rounded px-1 py-0.5"
                                   />
+                                  <input
+                                    type="text"
+                                    value={spell.components || ''}
+                                    onChange={(e) => handleSpellChange(idx, 'components', e.target.value)}
+                                    placeholder="Components (e.g., V, S, M)"
+                                    className="w-full bg-white border border-gray-300 rounded px-1 py-0.5"
+                                  />
+                                  <div className="flex gap-2">
+                                    <label className="flex items-center gap-1 cursor-pointer">
+                                      <input
+                                        type="checkbox"
+                                        checked={spell.concentration || false}
+                                        onChange={(e) => {
+                                          const newSpells = [...character.spells];
+                                          newSpells[idx] = {
+                                            ...newSpells[idx],
+                                            concentration: e.target.checked,
+                                          };
+                                          handleCharacterChange('spells', newSpells);
+                                        }}
+                                        className="w-4 h-4"
+                                      />
+                                      <span className="text-xs">Concentration</span>
+                                    </label>
+                                    <label className="flex items-center gap-1 cursor-pointer">
+                                      <input
+                                        type="checkbox"
+                                        checked={spell.ritual || false}
+                                        onChange={(e) => {
+                                          const newSpells = [...character.spells];
+                                          newSpells[idx] = {
+                                            ...newSpells[idx],
+                                            ritual: e.target.checked,
+                                          };
+                                          handleCharacterChange('spells', newSpells);
+                                        }}
+                                        className="w-4 h-4"
+                                      />
+                                      <span className="text-xs">Ritual</span>
+                                    </label>
+                                  </div>
                                 </div>
                                 <textarea
                                   value={spell.description}
@@ -824,16 +1278,104 @@ export default function CharacterSheet({ character: initialCharacter, onBack }: 
                                     </div>
                                   </div>
                                 </div>
+
+                                {/* Attack/Save Info */}
+                                {(() => {
+                                  const spellConfig = getSpellAttackType(spell.name);
+                                  const attackType = spell.attackType || spellConfig.attackType;
+                                  const hasVarDamage = hasVariableDamage(spell.name);
+                                  let altDamage: string | undefined = undefined;
+                                  if (hasVarDamage && spellConfig.variableDamage && spellConfig.variableDamage.length > 1) {
+                                    altDamage = spell.altDamage || `1d${spellConfig.variableDamage[1].diceSides}`;
+                                  }
+
+                                  // Show if spell has damage/saveDC OR is offensive in config
+                                  const shouldShow = spell.damage || spell.saveDC || (attackType && attackType !== 'none');
+
+                                  return shouldShow ? (
+                                    <div className="bg-blue-50 border border-blue-200 rounded p-2 mb-3 space-y-2">
+                                      {attackType === 'attack' && character.spellAttackBonus && (
+                                        <div className="flex items-center gap-2">
+                                          <span className="text-xs font-medium text-blue-700">Spell Attack:</span>
+                                          <span className="text-xs font-bold text-blue-900">{character.spellAttackBonus} to hit</span>
+                                          <button
+                                            onClick={() => handleRollAttack(spell.name, character.spellAttackBonus)}
+                                            className="ml-auto p-1 rounded hover:bg-blue-200 text-blue-600 hover:text-blue-700 transition-all flex-shrink-0"
+                                            title={`Roll ${spell.name} Attack`}
+                                          >
+                                            <Dice5 className="w-3 h-3" />
+                                          </button>
+                                        </div>
+                                      )}
+
+                                      {attackType === 'save' && spell.saveDC && (
+                                        <div className="text-xs font-medium text-purple-700">
+                                          <span>{spell.saveDC}</span>
+                                          <span className="text-purple-900 font-bold"> Saving Throw</span>
+                                        </div>
+                                      )}
+
+                                      {attackType === 'auto-hit' && (
+                                        <div className="text-xs font-medium text-green-700">Auto-hit (no roll needed)</div>
+                                      )}
+
+                                      {/* Damage Roll Options */}
+                                      {spell.damage && (
+                                        <div className="pt-1 border-t border-blue-200 space-y-1">
+                                          {altDamage && hasVarDamage ? (
+                                            <div className="flex flex-wrap gap-1">
+                                              <span className="text-xs text-gray-600 w-full">Damage:</span>
+                                              <button
+                                                onClick={() => handleRollDamage(spell.name, spell.damage!, 8)}
+                                                className="px-2 py-0.5 text-xs bg-orange-500 hover:bg-orange-600 text-white rounded transition-colors flex items-center gap-1"
+                                                title={`Roll ${spell.name} Damage (d8)`}
+                                              >
+                                                <span>d8</span>
+                                                <Dice5 className="w-3 h-3" />
+                                              </button>
+                                              <button
+                                                onClick={() => handleRollDamage(spell.name, altDamage, 12)}
+                                                className="px-2 py-0.5 text-xs bg-orange-500 hover:bg-orange-600 text-white rounded transition-colors flex items-center gap-1"
+                                                title={`Roll ${spell.name} Damage (d12)`}
+                                              >
+                                                <span>d12</span>
+                                                <Dice5 className="w-3 h-3" />
+                                              </button>
+                                            </div>
+                                          ) : (
+                                            <div className="flex items-center gap-2">
+                                              <span className="text-xs text-gray-600">Damage:</span>
+                                              <span className="text-xs text-gray-700 font-medium">{spell.damage}</span>
+                                              <button
+                                                onClick={() => handleRollDamage(spell.name, spell.damage!)}
+                                                className="ml-auto p-1 rounded hover:bg-blue-200 text-orange-600 hover:text-orange-700 transition-all flex-shrink-0"
+                                                title={`Roll ${spell.name} Damage`}
+                                              >
+                                                <Dice5 className="w-3 h-3" />
+                                              </button>
+                                            </div>
+                                          )}
+                                        </div>
+                                      )}
+                                    </div>
+                                  ) : null;
+                                })()}
+
                                 <div className="text-sm text-gray-600 space-y-1">
                                   <div><span className="font-medium">Casting Time:</span> {spell.castingTime}</div>
                                   <div><span className="font-medium">Range:</span> {spell.range}</div>
                                   <div><span className="font-medium">Duration:</span> {spell.duration}</div>
-                                  {spell.damage && (
-                                    <div><span className="font-medium">Damage:</span> <span className="text-red-600 font-semibold">{spell.damage}</span></div>
+                                  {spell.components && (
+                                    <div><span className="font-medium">Components:</span> {spell.components}</div>
                                   )}
-                                  {spell.saveDC && (
-                                    <div><span className="font-medium">Save DC:</span> <span className="text-blue-600 font-semibold">{spell.saveDC}</span></div>
-                                  )}
+                                  <div className="flex gap-3 text-xs">
+                                    {spell.concentration && (
+                                      <span className="bg-orange-100 text-orange-800 px-2 py-0.5 rounded">Concentration</span>
+                                    )}
+                                    {spell.ritual && (
+                                      <span className="bg-purple-100 text-purple-800 px-2 py-0.5 rounded">Ritual</span>
+                                    )}
+                                  </div>
                                   <p className="mt-2">{spell.description}</p>
                                 </div>
                               </>
@@ -1164,6 +1706,14 @@ export default function CharacterSheet({ character: initialCharacter, onBack }: 
           </div>
         </div>
       </div>
+
+      {/* Roll History Panel */}
+      <RollHistoryPanel
+        rolls={rollHistory}
+        minimized={historyMinimized}
+        onToggleMinimize={() => setHistoryMinimized(!historyMinimized)}
+        onClearHistory={handleClearHistory}
+      />
     </div>
   );
 }

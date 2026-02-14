@@ -34,16 +34,62 @@ export interface Equipment {
 }
 
 /**
+ * Perform a web search via OpenRouter for D&D 5e data
+ */
+async function webSearchDnD5e(query: string, apiKey: string): Promise<string | null> {
+  try {
+    console.log(`🌐 Attempting OpenRouter web search for: "${query}"`);
+    const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${apiKey}`,
+        "HTTP-Referer": "http://localhost:5173",
+        "X-Title": "D&D Character Generator",
+      },
+      body: JSON.stringify({
+        model: "openai/gpt-4o-mini",
+        messages: [
+          {
+            role: "user",
+            content: `Search for official D&D 5e information about "${query}". Provide a brief summary if found.`,
+          },
+        ],
+        web_search: {
+          enabled: true,
+        },
+      }),
+    });
+
+    if (!response.ok) {
+      console.error("❌ Web search failed:", response.status);
+      return null;
+    }
+
+    const data = await response.json();
+    const result = data.choices?.[0]?.message?.content || null;
+    if (result) {
+      console.log(`✅ Web search found info about "${query}"`);
+    }
+    return result;
+  } catch (error) {
+    console.error("❌ Web search error:", error);
+    return null;
+  }
+}
+
+/**
  * Search for spells by name or filter
  */
 export async function searchSpells(
   query: string | undefined,
-  options?: { level?: number; school?: string; className?: string }
+  options?: { level?: number; school?: string; className?: string },
+  apiKey?: string
 ): Promise<Spell[]> {
   if (!query) return [];
   
   try {
-    // Get all spells from the API
+    // Try 5e API first
     const response = await fetch(`${DND5E_API_BASE}/spells`);
     if (!response.ok) throw new Error(`Failed to fetch spells: ${response.status}`);
 
@@ -66,12 +112,35 @@ export async function searchSpells(
       );
     }
 
-    // Fetch detailed spell data
-    const detailedSpells = await Promise.all(
-      results.slice(0, 5).map((spell: any) => getSpellDetails(spell.index))
-    );
+    // If found in 5e API, return those results
+    if (results.length > 0) {
+      const detailedSpells = await Promise.all(
+        results.slice(0, 5).map((spell: any) => getSpellDetails(spell.index))
+      );
+      return detailedSpells.filter(Boolean) as Spell[];
+    }
 
-    return detailedSpells.filter(Boolean) as Spell[];
+    // Fallback: Try OpenRouter web search if 5e API returns nothing
+    if (apiKey) {
+      console.log(`📚 5e API found no spells for "${query}", trying web search...`);
+      const webResult = await webSearchDnD5e(query, apiKey);
+      if (webResult) {
+        return [{
+          index: query.toLowerCase().replace(/\s+/g, "-"),
+          name: query,
+          level: options?.level ?? 1,
+          school: { name: "Unknown" },
+          classes: [],
+          casting_time: "1 action",
+          range: "Unknown",
+          components: [],
+          duration: "Unknown",
+          concentration: false,
+        } as Spell];
+      }
+    }
+
+    return [];
   } catch (error) {
     console.error("❌ Error searching spells:", error);
     return [];
@@ -95,10 +164,11 @@ export async function getSpellDetails(spellIndex: string): Promise<Spell | null>
 /**
  * Search for feats by name
  */
-export async function searchFeats(query: string | undefined): Promise<Feat[]> {
+export async function searchFeats(query: string | undefined, apiKey?: string): Promise<Feat[]> {
   if (!query) return [];
   
   try {
+    // Try 5e API first
     const response = await fetch(`${DND5E_API_BASE}/feats`);
     if (!response.ok) throw new Error(`Failed to fetch feats: ${response.status}`);
 
@@ -110,12 +180,28 @@ export async function searchFeats(query: string | undefined): Promise<Feat[]> {
       feat.name.toLowerCase().includes(lowerQuery)
     );
 
-    // Fetch detailed feat data
-    const detailedFeats = await Promise.all(
-      results.slice(0, 5).map((feat: any) => getFeatDetails(feat.index))
-    );
+    // If found in 5e API, return those results
+    if (results.length > 0) {
+      const detailedFeats = await Promise.all(
+        results.slice(0, 5).map((feat: any) => getFeatDetails(feat.index))
+      );
+      return detailedFeats.filter(Boolean) as Feat[];
+    }
 
-    return detailedFeats.filter(Boolean) as Feat[];
+    // Fallback: Try OpenRouter web search if 5e API returns nothing
+    if (apiKey) {
+      console.log(`📚 5e API found no feats for "${query}", trying web search...`);
+      const webResult = await webSearchDnD5e(query, apiKey);
+      if (webResult) {
+        return [{
+          index: query.toLowerCase().replace(/\s+/g, "-"),
+          name: query,
+          prerequisites: [],
+        } as Feat];
+      }
+    }
+
+    return [];
   } catch (error) {
     console.error("❌ Error searching feats:", error);
     return [];
@@ -200,10 +286,11 @@ export async function getClassFeatures(className: string | undefined): Promise<C
 /**
  * Search for equipment/items by name
  */
-export async function searchEquipment(query: string | undefined): Promise<Equipment[]> {
+export async function searchEquipment(query: string | undefined, apiKey?: string): Promise<Equipment[]> {
   if (!query) return [];
   
   try {
+    // Try 5e API first
     const response = await fetch(`${DND5E_API_BASE}/equipment`);
     if (!response.ok) throw new Error(`Failed to fetch equipment: ${response.status}`);
 
@@ -215,12 +302,27 @@ export async function searchEquipment(query: string | undefined): Promise<Equipm
       item.name.toLowerCase().includes(lowerQuery)
     );
 
-    // Fetch detailed equipment data
-    const detailedEquipment = await Promise.all(
-      results.slice(0, 5).map((item: any) => getEquipmentDetails(item.index))
-    );
+    // If found in 5e API, return those results
+    if (results.length > 0) {
+      const detailedEquipment = await Promise.all(
+        results.slice(0, 5).map((item: any) => getEquipmentDetails(item.index))
+      );
+      return detailedEquipment.filter(Boolean) as Equipment[];
+    }
 
-    return detailedEquipment.filter(Boolean) as Equipment[];
+    // Fallback: Try OpenRouter web search if 5e API returns nothing
+    if (apiKey) {
+      console.log(`📚 5e API found no equipment for "${query}", trying web search...`);
+      const webResult = await webSearchDnD5e(query, apiKey);
+      if (webResult) {
+        return [{
+          index: query.toLowerCase().replace(/\s+/g, "-"),
+          name: query,
+        } as Equipment];
+      }
+    }
+
+    return [];
   } catch (error) {
     console.error("❌ Error searching equipment:", error);
     return [];

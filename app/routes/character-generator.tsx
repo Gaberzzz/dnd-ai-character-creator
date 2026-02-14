@@ -1,7 +1,8 @@
-import { useState, useEffect } from 'react';
-import { Wand2, Eye, EyeOff } from 'lucide-react';
+import { useState, useEffect, useRef } from 'react';
+import { Wand2, Eye, EyeOff, Upload } from 'lucide-react';
 import { useNavigate } from 'react-router';
 import CharacterSheet from './character-sheet';
+import { getSpellAttackType, hasVariableDamage } from '../utils/spellAttackConfig';
 
 // Remove the server-side import and declare type
 type PDFLibType = typeof import('pdf-lib');
@@ -163,6 +164,13 @@ interface CharacterData {
         range: string;
         duration: string;
         description: string;
+        concentration?: boolean;
+        ritual?: boolean;
+        components?: string;
+        damage?: string;
+        saveDC?: string;
+        attackType?: 'attack' | 'save' | 'auto-hit' | 'none';
+        altDamage?: string;
     }>;
     spells: Array<{
         name: string;
@@ -172,6 +180,13 @@ interface CharacterData {
         range: string;
         duration: string;
         description: string;
+        concentration?: boolean;
+        ritual?: boolean;
+        components?: string;
+        damage?: string;
+        saveDC?: string;
+        attackType?: 'attack' | 'save' | 'auto-hit' | 'none';
+        altDamage?: string;
     }>;
     spellcastingAbility: string;
     spellSaveDC: string;
@@ -191,6 +206,7 @@ export default function CharacterGenerator() {
     const [apiKey, setApiKey] = useState('');
     const [showApiKey, setShowApiKey] = useState(false);
     const [showSheet, setShowSheet] = useState(false);
+    const fileInputRef = useRef<HTMLInputElement>(null);
 
     // Show character sheet view when data is generated
     if (showSheet && characterData) {
@@ -302,7 +318,10 @@ Please return ONLY a JSON object with these exact field names and appropriate va
       "duration": "string (e.g., 'Instantaneous')",
       "description": "string (spell effects and details)",
       "damage": "string (optional, e.g., '1d10 fire')",
-      "saveDC": "string (optional)"
+      "saveDC": "string (optional)",
+      "concentration": "boolean (true if requires concentration)",
+      "ritual": "boolean (true if can be cast as ritual)",
+      "components": "string (e.g., 'V, S' or 'V, S, M (a focus)')"
     }
   ],
   "spells": [
@@ -315,7 +334,10 @@ Please return ONLY a JSON object with these exact field names and appropriate va
       "duration": "string (e.g., 'Instantaneous')",
       "description": "string (spell effects and details)",
       "damage": "string (optional, e.g., '20d6 fire')",
-      "saveDC": "string (optional, e.g., 'DEX 20')"
+      "saveDC": "string (optional, e.g., 'DEX 20')",
+      "concentration": "boolean (true if requires concentration)",
+      "ritual": "boolean (true if can be cast as ritual)",
+      "components": "string (e.g., 'V, S, M (a focus)')"
     }
   ],
   "spellcastingAbility": "string (INT, WIS, or CHA based on class)",
@@ -384,6 +406,33 @@ Make personality traits, background, and story elements match the theme requeste
             if (!characterJson.classDescription) characterJson.classDescription = '';
             if (!characterJson.subclassDescription) characterJson.subclassDescription = '';
             
+            // Process cantrips and spells to add attackType and altDamage fields
+            if (characterJson.cantrips && Array.isArray(characterJson.cantrips)) {
+                characterJson.cantrips = characterJson.cantrips.map((cantrip: any) => {
+                    const spellConfig = getSpellAttackType(cantrip.name);
+                    return {
+                        ...cantrip,
+                        attackType: spellConfig.attackType,
+                        altDamage: hasVariableDamage(cantrip.name) ? 
+                            (spellConfig.variableDamage ? `1d${spellConfig.variableDamage[1]?.diceSides}` : undefined) 
+                            : undefined
+                    };
+                });
+            }
+
+            if (characterJson.spells && Array.isArray(characterJson.spells)) {
+                characterJson.spells = characterJson.spells.map((spell: any) => {
+                    const spellConfig = getSpellAttackType(spell.name);
+                    return {
+                        ...spell,
+                        attackType: spellConfig.attackType,
+                        altDamage: hasVariableDamage(spell.name) ? 
+                            (spellConfig.variableDamage ? `1d${spellConfig.variableDamage[1]?.diceSides}` : undefined) 
+                            : undefined
+                    };
+                });
+            }
+            
             setCharacterData(characterJson);
             setShowSheet(true);
 
@@ -392,6 +441,37 @@ Make personality traits, background, and story elements match the theme requeste
             alert(`Error generating character: ${error instanceof Error ? error.message : 'Unknown error'}`);
         } finally {
             setLoading(false);
+        }
+    };
+
+    const importFromJSON = (event: React.ChangeEvent<HTMLInputElement>) => {
+        const file = event.target.files?.[0];
+        if (!file) return;
+
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            try {
+                const jsonData = JSON.parse(e.target?.result as string);
+                
+                // Validate that it's a valid character data object
+                if (!jsonData.characterName) {
+                    throw new Error('Invalid character data: missing characterName field');
+                }
+
+                // Set the character data and show the sheet
+                setCharacterData(jsonData as CharacterData);
+                setShowSheet(true);
+                alert(`Successfully imported character: ${jsonData.characterName}`);
+            } catch (error) {
+                console.error('Error importing JSON:', error);
+                alert(`Failed to import character data: ${error instanceof Error ? error.message : 'Invalid JSON file'}`);
+            }
+        };
+        reader.readAsText(file);
+
+        // Reset file input so the same file can be imported again
+        if (fileInputRef.current) {
+            fileInputRef.current.value = '';
         }
     };
 
@@ -455,23 +535,40 @@ Make personality traits, background, and story elements match the theme requeste
                         rows={4}
                     />
 
-                    <button
-                        onClick={() => generateCharacterData(prompt)}
-                        disabled={loading || !prompt.trim()}
-                        className="mt-4 px-6 py-3 bg-orange-600 hover:bg-orange-700 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-md font-semibold flex items-center gap-2 transition-colors"
-                    >
-                        {loading ? (
-                            <>
-                                <div className="animate-spin rounded-full h-5 w-5 border-2 border-white border-t-transparent"></div>
-                                Generating Character...
-                            </>
-                        ) : (
-                            <>
-                                <Wand2 size={20} />
-                                Generate Character
-                            </>
-                        )}
-                    </button>
+                    <div className="mt-4 flex gap-3">
+                        <button
+                            onClick={() => generateCharacterData(prompt)}
+                            disabled={loading || !prompt.trim()}
+                            className="flex-1 px-6 py-3 bg-orange-600 hover:bg-orange-700 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-md font-semibold flex items-center justify-center gap-2 transition-colors"
+                        >
+                            {loading ? (
+                                <>
+                                    <div className="animate-spin rounded-full h-5 w-5 border-2 border-white border-t-transparent"></div>
+                                    Generating Character...
+                                </>
+                            ) : (
+                                <>
+                                    <Wand2 size={20} />
+                                    Generate Character
+                                </>
+                            )}
+                        </button>
+
+                        <button
+                            onClick={() => fileInputRef.current?.click()}
+                            className="px-6 py-3 bg-gray-700 hover:bg-gray-600 text-white rounded-md font-semibold flex items-center justify-center gap-2 transition-colors"
+                        >
+                            <Upload size={20} />
+                            Import from JSON
+                        </button>
+                        <input
+                            ref={fileInputRef}
+                            type="file"
+                            accept=".json"
+                            onChange={importFromJSON}
+                            className="hidden"
+                        />
+                    </div>
                 </div>
             </div>
         </div>

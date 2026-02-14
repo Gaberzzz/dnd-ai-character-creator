@@ -1,3 +1,5 @@
+import { Dice5 } from 'lucide-react';
+
 interface AttackEntryProps {
   name: string;
   atkBonus: string;
@@ -5,6 +7,8 @@ interface AttackEntryProps {
   onNameChange?: (value: string) => void;
   onAtkBonusChange?: (value: string) => void;
   onDamageChange?: (value: string) => void;
+  onRollAttack?: (weaponName: string, bonus: string) => void;
+  onRollDamage?: (weaponName: string, damage: string) => void;
   onDelete?: () => void;
   editable?: boolean;
 }
@@ -16,6 +20,8 @@ export default function AttackEntry({
   onNameChange,
   onAtkBonusChange,
   onDamageChange,
+  onRollAttack,
+  onRollDamage,
   onDelete,
   editable = false,
 }: AttackEntryProps) {
@@ -54,7 +60,18 @@ export default function AttackEntry({
               className="w-full bg-gray-700 text-orange-300 border border-orange-400 rounded px-1 py-0.5 font-semibold mt-1"
             />
           ) : (
-            <div className="text-orange-300 font-semibold">{atkBonus}</div>
+            <div className="flex items-center justify-between p-1 group">
+              <div className="text-orange-300 font-semibold">{atkBonus}</div>
+              {!editable && onRollAttack && (
+                <button
+                  onClick={() => onRollAttack(name, atkBonus)}
+                  className="p-0.5 rounded opacity-0 group-hover:opacity-100 hover:bg-orange-500 text-orange-300 hover:text-white transition-all flex-shrink-0"
+                  title={`Roll ${name} Attack`}
+                >
+                  <Dice5 className="w-3 h-3" />
+                </button>
+              )}
+            </div>
           )}
         </div>
         <div>
@@ -67,7 +84,18 @@ export default function AttackEntry({
               className="w-full bg-gray-700 text-orange-300 border border-orange-400 rounded px-1 py-0.5 font-semibold mt-1"
             />
           ) : (
-            <div className="text-orange-300 font-semibold">{damage}</div>
+            <div className="flex items-center justify-between p-1 group">
+              <div className="text-orange-300 font-semibold">{damage}</div>
+              {!editable && onRollDamage && (
+                <button
+                  onClick={() => onRollDamage(name, damage)}
+                  className="p-0.5 rounded opacity-0 group-hover:opacity-100 hover:bg-orange-500 text-orange-300 hover:text-white transition-all flex-shrink-0"
+                  title={`Roll ${name} Damage`}
+                >
+                  <Dice5 className="w-3 h-3" />
+                </button>
+              )}
+            </div>
           )}
         </div>
       </div>
