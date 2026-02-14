@@ -16,6 +16,8 @@ function getTypeLabel(type: string): string {
       return 'Attacks';
     case 'damage':
       return 'Damage Rolls';
+    case 'healing':
+      return 'Healing';
     default:
       return type;
   }
@@ -33,6 +35,8 @@ function getTypeColor(type: string): string {
       return 'bg-red-900 border-red-700';
     case 'damage':
       return 'bg-orange-900 border-orange-700';
+    case 'healing':
+      return 'bg-green-900 border-green-700';
     default:
       return 'bg-gray-800 border-gray-700';
   }

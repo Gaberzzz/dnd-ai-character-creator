@@ -31,6 +31,10 @@ interface SpellProps {
   onDelete?: () => void;
   onRollAttack?: (spellName: string, attackBonus: string) => void;
   onRollDamage?: (spellName: string, damageFormula: string, diceSides?: number) => void;
+  isHealing?: boolean;
+  healingFormula?: string;
+  appliesModifier?: boolean;
+  onRollHealing?: (spellName: string, healingFormula: string, applyModifier: boolean) => void;
   editable?: boolean;
 }
 
@@ -63,6 +67,10 @@ export default function SpellEntry({
   onDelete,
   onRollAttack,
   onRollDamage,
+  isHealing = false,
+  healingFormula,
+  appliesModifier = false,
+  onRollHealing,
   editable = false,
 }: SpellProps) {
   // Parse save DC to extract the DC value (e.g., "DC 15 DEX" -> 15)
@@ -199,6 +207,28 @@ export default function SpellEntry({
               )}
             </div>
           )}
+        </div>
+      )}
+
+      {/* Healing Roll Button */}
+      {!editable && isHealing && healingFormula && healingFormula !== '0' && (
+        <div className="bg-green-900/30 border border-green-600 rounded p-3">
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-green-400">Healing:</span>
+            <span className="text-sm text-green-300 font-medium">
+              {healingFormula}{appliesModifier ? ' + modifier' : ''}
+            </span>
+            {onRollHealing && (
+              <button
+                onClick={() => onRollHealing(name, healingFormula, appliesModifier)}
+                className="ml-auto px-3 py-1 text-xs bg-green-600 hover:bg-green-700 text-green-100 rounded transition-colors flex items-center gap-1"
+                title={`Roll ${name} Healing`}
+              >
+                <span>Roll Healing</span>
+                <Dice5 className="w-3 h-3" />
+              </button>
+            )}
+          </div>
         </div>
       )}
 
