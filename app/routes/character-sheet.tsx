@@ -2,7 +2,8 @@ import { useState, useMemo, useRef } from 'react';
 import { Download, Edit2, Save, X, Heart, Shield, Sword, ChevronDown, Upload, Dice5 } from 'lucide-react';
 import SpellEntry from '../components/SpellEntry';
 import { RollHistoryPanel } from '../components/RollHistoryPanel';
-import type { RollResult } from '../utils/diceRoller';
+import type { RollResult, SharedRollResult } from '../utils/diceRoller';
+import { useSharedRolls } from '../hooks/useSharedRolls';
 import {
   rollAbilityCheck,
   rollSavingThrow,
@@ -192,6 +193,27 @@ export default function CharacterSheet({ character: initialCharacter, onBack }: 
   const [pdfVersion, setPdfVersion] = useState<'2024' | 'original'>('2024');
   const [rollHistory, setRollHistory] = useState<RollResult[]>([]);
   const [historyMinimized, setHistoryMinimized] = useState(true);
+  const { sharedRolls, submitRoll } = useSharedRolls();
+
+  // Combine local rolls with shared rolls from other users
+  const combinedRolls = useMemo(() => {
+    const localIds = new Set(rollHistory.map(r => r.id));
+    const remoteRolls = sharedRolls
+      .filter(r => !localIds.has(r.id))
+      .map(r => ({
+        ...r,
+        timestamp: new Date(r.timestamp),
+        isRemote: true as const,
+      }));
+    const localRolls = rollHistory.map(r => ({
+      ...r,
+      characterName: character.characterName || 'Unknown',
+      isRemote: false as const,
+    }));
+    return [...localRolls, ...remoteRolls]
+      .sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime())
+      .slice(0, 100);
+  }, [rollHistory, sharedRolls, character.characterName]);
 
   // Calculate derived values
   const proficiencyBonus = useMemo(() => calculateProficiencyBonus(character.level), [character.level]);
@@ -380,6 +402,12 @@ export default function CharacterSheet({ character: initialCharacter, onBack }: 
     });
     // Auto-expand history panel when a roll is made
     setHistoryMinimized(false);
+    // Post to shared roll store
+    submitRoll({
+      ...roll,
+      characterName: character.characterName || 'Unknown',
+      timestamp: roll.timestamp.toISOString(),
+    });
   };
 
   const handleClearHistory = () => {
@@ -1709,7 +1737,7 @@ export default function CharacterSheet({ character: initialCharacter, onBack }: 
 
       {/* Roll History Panel */}
       <RollHistoryPanel
-        rolls={rollHistory}
+        rolls={combinedRolls}
         minimized={historyMinimized}
         onToggleMinimize={() => setHistoryMinimized(!historyMinimized)}
         onClearHistory={handleClearHistory}
