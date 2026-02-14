@@ -194,6 +194,34 @@ export default function CharacterSheet({ character: initialCharacter, onBack }: 
   const [pdfVersion, setPdfVersion] = useState<'2024' | 'original'>('2024');
   const [rollHistory, setRollHistory] = useState<RollResult[]>([]);
   const [historyMinimized, setHistoryMinimized] = useState(true);
+  const { sharedRolls, submitRoll } = useSharedRolls();
+
+  // Combine local rolls with shared rolls from other users
+  const combinedRolls = useMemo(() => {
+    const localIds = new Set(rollHistory.map(r => r.id));
+    const remoteRolls = sharedRolls
+      .filter(r => !localIds.has(r.id))
+      .map(r => ({
+        ...r,
+        timestamp: new Date(r.timestamp),
+        isRemote: true as const,
+      }));
+    const localRolls = rollHistory.map(r => ({
+      ...r,
+      characterName: character.characterName || 'Unknown',
+      isRemote: false as const,
+    }));
+    return [...localRolls, ...remoteRolls]
+      .sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime())
+      .slice(0, 100);
+  }, [rollHistory, sharedRolls, character.characterName]);
+  const [openSmitePicker, setOpenSmitePicker] = useState<string | null>(null); // tracks which picker is open: "featureName-weaponIdx"
+
+  // Bonus damage features for weapon cards
+  const bonusDamageFeatures = useMemo(() =>
+    getBonusDamageFeatures(character.class, character.level, character.features, character.race),
+    [character.class, character.level, character.features, character.race]
+  );
 
   // Calculate derived values
   const proficiencyBonus = useMemo(() => calculateProficiencyBonus(character.level), [character.level]);
@@ -372,6 +400,20 @@ export default function CharacterSheet({ character: initialCharacter, onBack }: 
   const handleRollDamage = (weaponName: string, damageFormula: string, diceSides?: number) => {
     const result = rollDamage(weaponName, damageFormula, diceSides);
     addRoll(result);
+  };
+
+  const handleRollHealing = (spellName: string, healingFormula: string, applyModifier: boolean) => {
+    const abilityMod = applyModifier
+      ? calculateModifier(getSpellcastingAbilityScore(character))
+      : 0;
+    const result = rollHealing(spellName, healingFormula, abilityMod);
+    addRoll(result);
+  };
+
+  const handleRollBonusDamage = (featureName: string, dice: string) => {
+    const result = rollDamage(featureName, dice);
+    addRoll(result);
+    setOpenSmitePicker(null);
   };
 
   const addRoll = (roll: RollResult) => {
