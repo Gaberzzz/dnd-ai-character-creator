@@ -35,6 +35,43 @@ const calculateProficiencyBonusFromLevel = (level: string): number => {
   return 6;
 };
 
+const calculateTotalLevel = (character: CharacterData): number => {
+  if (character.classes && Array.isArray(character.classes) && character.classes.length > 0) {
+    return character.classes.reduce((sum, cls) => sum + cls.level, 0);
+  }
+  // Fallback for old single-class format
+  return parseInt(character.level) || 1;
+};
+
+const normalizeCharacterData = (character: CharacterData): CharacterData => {
+  // If we don't have classes array yet, create it from old fields
+  if (!character.classes || character.classes.length === 0) {
+    const level = parseInt(character.level) || 1;
+    return {
+      ...character,
+      classes: character.class ? [{
+        name: character.class,
+        subclass: character.subclass || '',
+        level: level,
+        description: character.classDescription,
+      }] : [],
+    };
+  }
+  return character;
+};
+
+const getClassDisplayText = (character: CharacterData): string => {
+  if (character.classes && character.classes.length > 0) {
+    return character.classes
+      .map(cls => `${cls.name}${cls.subclass ? ` (${cls.subclass})` : ''} ${cls.level}`)
+      .join(' / ');
+  }
+  // Fallback for old format
+  return `${character.class}${character.subclass ? ` (${character.subclass})` : ''}`;
+};
+
+
+
 const getAbilityModifier = (character: CharacterData, abilityKey: 'strength' | 'dexterity' | 'constitution' | 'intelligence' | 'wisdom' | 'charisma'): string => {
   const scoreStr = character[abilityKey];
   const score = parseInt(scoreStr) || 0;
@@ -71,16 +108,24 @@ interface Feature {
   category?: string; // 'racial', 'class', 'background', 'feat', etc.
 }
 
+interface CharacterClass {
+  name: string;
+  subclass: string;
+  level: number;
+  description?: string;
+}
+
 interface CharacterData {
   characterName: string;
   playerName: string;
   race: string;
   raceDescription: string;
-  class: string;
-  classDescription: string;
-  level: string;
-  subclass: string;
-  subclassDescription: string;
+  classes?: CharacterClass[];
+  class?: string;
+  classDescription?: string;
+  level?: string;
+  subclass?: string;
+  subclassDescription?: string;
   background: string;
   alignment: string;
   experiencePoints: string;
@@ -187,11 +232,11 @@ const skillToAbility: Record<string, string> = {
 };
 
 export default function CharacterSheet({ character: initialCharacter, onBack }: CharacterSheetProps) {
-  const [character, setCharacter] = useState<CharacterData>(initialCharacter);
+  const [character, setCharacter] = useState<CharacterData>(normalizeCharacterData(initialCharacter));
   const [isEditing, setIsEditing] = useState(false);
   const [hpAdjustAmount, setHpAdjustAmount] = useState<string>('');
   const [editingTempHp, setEditingTempHp] = useState(false);
-  const [activeTab, setActiveTab] = useState<'actions' | 'spells' | 'inventory' | 'features'>('actions');
+  const [activeTab, setActiveTab] = useState<'actions' | 'spells' | 'inventory' | 'features' | 'background'>('actions');
   const [expandedFeatures, setExpandedFeatures] = useState<{ [key: number]: boolean }>({});
   const [pdfVersion, setPdfVersion] = useState<'2024' | 'original'>('2024');
   const [rollHistory, setRollHistory] = useState<RollResult[]>([]);
@@ -220,14 +265,20 @@ export default function CharacterSheet({ character: initialCharacter, onBack }: 
   const [openSmitePicker, setOpenSmitePicker] = useState<string | null>(null); // tracks which picker is open: "featureName-weaponIdx"
 
   // Bonus damage features for weapon cards
-  const bonusDamageFeatures = useMemo(() =>
-    getBonusDamageFeatures(character.class, character.level, character.features, character.race),
-    [character.class, character.level, character.features, character.race]
-  );
+  const bonusDamageFeatures = useMemo(() => {
+    const primaryClassName = character.classes && character.classes.length > 0
+      ? character.classes[0].name
+      : character.class || '';
+    const totalLevel = calculateTotalLevel(character);
+    return getBonusDamageFeatures(primaryClassName, totalLevel.toString(), character.features, character.race);
+  }, [character.classes, character.class, character.features, character.race]);
 
   // Calculate derived values
-  const proficiencyBonus = useMemo(() => calculateProficiencyBonus(character.level), [character.level]);
-  
+  const proficiencyBonus = useMemo(() => {
+    const totalLevel = calculateTotalLevel(character);
+    return calculateProficiencyBonus(totalLevel.toString());
+  }, [character.classes, character.level]);
+
   const abilityModifiers = useMemo(() => ({
     strength: calculateModifier(parseInt(character.strength) || 0),
     dexterity: calculateModifier(parseInt(character.dexterity) || 0),
@@ -522,7 +573,7 @@ export default function CharacterSheet({ character: initialCharacter, onBack }: 
       const { mapCharacterToPDF, mapCharacterToPDF2024 } = await import('../utils/pdfFieldMapping');
 
       // Select PDF file and mapping function based on version
-      const pdfPath = pdfVersion === '2024' 
+      const pdfPath = pdfVersion === '2024'
         ? '/DnD_2024_Character-Sheet - fillable - V2.pdf'
         : '/dnd_character_sheet_fillable.pdf';
       const mappingFunction = pdfVersion === '2024' ? mapCharacterToPDF2024 : mapCharacterToPDF;
@@ -542,7 +593,7 @@ export default function CharacterSheet({ character: initialCharacter, onBack }: 
       const pdfData = mappingFunction(character);
 
       // Define fields that should have smaller font sizes
-      const smallFontFields = pdfVersion === '2024' 
+      const smallFontFields = pdfVersion === '2024'
         ? ['CLASS FEATURES 1', 'CLASS FEATURES 2', 'SPECIES TRAITS', 'FEATS', 'EQUIPMENT', 'PERSONALITY', 'IDEALS', 'BONDS', 'FLAWS']
         : ['Features and Traits', 'Equipment', 'AttacksSpellcasting', 'Backstory'];
 
@@ -569,7 +620,7 @@ export default function CharacterSheet({ character: initialCharacter, onBack }: 
             try {
               const textField = form.getTextField(fieldName);
               textField.setText(String(value));
-              
+
               // Reduce font size for large text fields to fit more content
               if (smallFontFields.includes(fieldName)) {
                 textField.setFontSize(8);
@@ -639,7 +690,7 @@ export default function CharacterSheet({ character: initialCharacter, onBack }: 
     reader.onload = (e) => {
       try {
         const jsonData = JSON.parse(e.target?.result as string);
-        
+
         // Validate that it's a valid character data object
         if (!jsonData.characterName) {
           throw new Error('Invalid character data: missing characterName field');
@@ -668,15 +719,135 @@ export default function CharacterSheet({ character: initialCharacter, onBack }: 
         <div className="max-w-7xl mx-auto px-6 py-4">
           <div className="flex items-start justify-between mb-3">
             <div>
-              <h1 className="text-3xl font-bold text-gray-900 mb-1">{character.characterName}</h1>
-              <div className="text-sm text-gray-600">
-                <span className="font-medium">{character.race}</span>
-                {' • '}
-                <span className="font-medium">{character.class}{character.subclass ? ` (${character.subclass})` : ''}</span>
-                {' • '}
-                <span>Level {character.level}</span>
-                {' • '}
-                <span>{character.background}</span>
+              {isEditing ? (
+                <input
+                  type="text"
+                  value={character.characterName}
+                  onChange={(e) => handleCharacterChange('characterName', e.target.value)}
+                  className="text-3xl font-bold text-gray-900 mb-1 bg-white border-2 border-blue-400 rounded px-2 py-1 w-full"
+                  placeholder="Character Name"
+                />
+              ) : (
+                <h1 className="text-3xl font-bold text-gray-900 mb-1">{character.characterName}</h1>
+              )}
+              {isEditing ? (
+                <div className="space-y-2">
+                  <div className="flex gap-2 flex-wrap text-sm">
+                    <div className="flex-1 min-w-48">
+                      <label className="text-xs text-gray-600 block mb-1">Race</label>
+                      <input
+                        type="text"
+                        value={character.race}
+                        onChange={(e) => handleCharacterChange('race', e.target.value)}
+                        className="w-full bg-white border border-gray-300 rounded px-2 py-1 text-sm font-medium"
+                        placeholder="Race"
+                      />
+                    </div>
+                    <div className="flex-1 min-w-48">
+                      <label className="text-xs text-gray-600 block mb-1">Class</label>
+                      <input
+                        type="text"
+                        value={getClassDisplayText(character)}
+                        readOnly
+                        disabled
+                        className="w-full bg-gray-100 border border-gray-300 rounded px-2 py-1 text-sm font-medium text-gray-600 cursor-help"
+                        title="Edit classes in the Features tab"
+                      />
+                    </div>
+                    <div className="flex-1 min-w-48">
+                      <label className="text-xs text-gray-600 block mb-1">Background</label>
+                      <input
+                        type="text"
+                        value={character.background}
+                        onChange={(e) => handleCharacterChange('background', e.target.value)}
+                        className="w-full bg-white border border-gray-300 rounded px-2 py-1 text-sm font-medium"
+                        placeholder="Background"
+                      />
+                    </div>
+                  </div>
+                  <div className="text-xs text-gray-500">Level {calculateTotalLevel(character)}</div>
+                </div>
+              ) : (
+                <div className="text-sm text-gray-600">
+                  <span className="font-medium">{character.race}</span>
+                  {' • '}
+                  <span className="font-medium">{getClassDisplayText(character)}</span>
+                  {' • '}
+                  <span>Level {calculateTotalLevel(character)}</span>
+                  {' • '}
+                  <span>{character.background}</span>
+                </div>
+              )}
+              {/* Action Buttons */}
+              <div className="flex items-center gap-2">
+                {isEditing ? (
+                  <>
+                    <button
+                      onClick={() => setIsEditing(false)}
+                      className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-md text-sm font-medium transition-colors"
+                    >
+                      <Save size={16} className="inline mr-1" />
+                      Save
+                    </button>
+                    <button
+                      onClick={() => {
+                        setCharacter(initialCharacter);
+                        setIsEditing(false);
+                      }}
+                      className="px-4 py-2 bg-gray-300 hover:bg-gray-400 text-gray-700 rounded-md text-sm font-medium transition-colors"
+                    >
+                      Cancel
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <button
+                      onClick={() => setIsEditing(true)}
+                      className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-md text-sm font-medium transition-colors"
+                    >
+                      <Edit2 size={16} className="inline mr-1" />
+                      Edit Character
+                    </button>
+                    <div className="flex items-center gap-2">
+                      <select
+                        value={pdfVersion}
+                        onChange={(e) => setPdfVersion(e.target.value as '2024' | 'original')}
+                        className="px-3 py-2 border border-gray-300 rounded-md text-sm font-medium bg-white text-gray-700"
+                      >
+                        <option value="2024">2024 Edition (Default)</option>
+                        <option value="original">Original Edition</option>
+                      </select>
+                      <button onClick={exportToPDF} className="px-4 py-2 bg-gray-200 hover:bg-gray-300 text-gray-700 rounded-md text-sm font-medium transition-colors">
+                        <Download size={16} className="inline mr-1" />
+                        PDF
+                      </button>
+                      <button onClick={exportToJSON} className="px-4 py-2 bg-gray-200 hover:bg-gray-300 text-gray-700 rounded-md text-sm font-medium transition-colors">
+                        <Download size={16} className="inline mr-1" />
+                        JSON
+                      </button>
+                      <button onClick={() => fileInputRef.current?.click()} className="px-4 py-2 bg-gray-200 hover:bg-gray-300 text-gray-700 rounded-md text-sm font-medium transition-colors">
+                        <Upload size={16} className="inline mr-1" />
+                        JSON
+                      </button>
+                      <input
+                        ref={fileInputRef}
+                        type="file"
+                        accept=".json"
+                        onChange={importFromJSON}
+                        className="hidden"
+                      />
+                    </div>
+                  </>
+                )}
+                {onBack && (
+                  <button
+                    onClick={onBack}
+                    className="px-4 py-2 bg-gray-300 hover:bg-gray-400 text-gray-700 rounded-md text-sm font-medium transition-colors ml-auto"
+                  >
+                    <X size={16} className="inline mr-1" />
+                    Back
+                  </button>
+                )}
               </div>
             </div>
 
@@ -833,78 +1004,6 @@ export default function CharacterSheet({ character: initialCharacter, onBack }: 
               </div>
             </div>
           </div>
-
-          {/* Action Buttons */}
-          <div className="flex items-center gap-2">
-            {isEditing ? (
-              <>
-                <button
-                  onClick={() => setIsEditing(false)}
-                  className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-md text-sm font-medium transition-colors"
-                >
-                  <Save size={16} className="inline mr-1" />
-                  Save Changes
-                </button>
-                <button
-                  onClick={() => {
-                    setCharacter(initialCharacter);
-                    setIsEditing(false);
-                  }}
-                  className="px-4 py-2 bg-gray-300 hover:bg-gray-400 text-gray-700 rounded-md text-sm font-medium transition-colors"
-                >
-                  Cancel
-                </button>
-              </>
-            ) : (
-              <>
-                <button
-                  onClick={() => setIsEditing(true)}
-                  className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-md text-sm font-medium transition-colors"
-                >
-                  <Edit2 size={16} className="inline mr-1" />
-                  Edit Character
-                </button>
-                <div className="flex items-center gap-2">
-                  <select
-                    value={pdfVersion}
-                    onChange={(e) => setPdfVersion(e.target.value as '2024' | 'original')}
-                    className="px-3 py-2 border border-gray-300 rounded-md text-sm font-medium bg-white text-gray-700"
-                  >
-                    <option value="2024">2024 Edition (Default)</option>
-                    <option value="original">Original Edition</option>
-                  </select>
-                  <button onClick={exportToPDF} className="px-4 py-2 bg-gray-200 hover:bg-gray-300 text-gray-700 rounded-md text-sm font-medium transition-colors">
-                    <Download size={16} className="inline mr-1" />
-                    Export PDF
-                  </button>
-                  <button onClick={exportToJSON} className="px-4 py-2 bg-gray-200 hover:bg-gray-300 text-gray-700 rounded-md text-sm font-medium transition-colors">
-                    <Download size={16} className="inline mr-1" />
-                    Export JSON
-                  </button>
-                  <button onClick={() => fileInputRef.current?.click()} className="px-4 py-2 bg-gray-200 hover:bg-gray-300 text-gray-700 rounded-md text-sm font-medium transition-colors">
-                    <Upload size={16} className="inline mr-1" />
-                    Import JSON
-                  </button>
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    accept=".json"
-                    onChange={importFromJSON}
-                    className="hidden"
-                  />
-                </div>
-              </>
-            )}
-            {onBack && (
-              <button
-                onClick={onBack}
-                className="px-4 py-2 bg-gray-300 hover:bg-gray-400 text-gray-700 rounded-md text-sm font-medium transition-colors ml-auto"
-              >
-                <X size={16} className="inline mr-1" />
-                Back
-              </button>
-            )}
-          </div>
         </div>
       </div>
 
@@ -972,41 +1071,36 @@ export default function CharacterSheet({ character: initialCharacter, onBack }: 
                   <span className="text-sm font-medium text-gray-600">Hit Dice</span>
                   <span className="text-lg font-bold text-gray-900">{character.hitDice}</span>
                 </div>
+                <div className="border-t border-gray-200 pt-3">
+                  <div className="text-xs font-bold text-gray-600 uppercase mb-2">Passive Senses</div>
+                  <div className="space-y-2">
+                    <div className="flex justify-between items-center">
+                      <span className="text-sm text-gray-600">Perception</span>
+                      <span className="text-sm font-bold text-gray-900">
+                        {10 + parseModifier(character.skills?.perception?.value || '+0')}
+                      </span>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span className="text-sm text-gray-600">Investigation</span>
+                      <span className="text-sm font-bold text-gray-900">
+                        {10 + parseModifier(character.skills?.investigation?.value || '+0')}
+                      </span>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span className="text-sm text-gray-600">Insight</span>
+                      <span className="text-sm font-bold text-gray-900">
+                        {10 + parseModifier(character.skills?.insight?.value || '+0')}
+                      </span>
+                    </div>
+                  </div>
+                </div>
               </div>
             </div>
 
-            {/* Saving Throws */}
-            <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
-              <h3 className="text-sm font-bold text-gray-700 uppercase mb-3">Saving Throws</h3>
-              <div className="space-y-2">
-                {Object.entries(character.savingThrows).map(([name, data]) => (
-                  <div key={name} className="flex items-center gap-2 group">
-                    <input
-                      type="checkbox"
-                      checked={data.proficient}
-                      onChange={(e) => handleSavingThrowChange(name, e.target.checked)}
-                      disabled={!isEditing}
-                      className="w-4 h-4 text-blue-600 rounded"
-                    />
-                    <span className="text-sm font-medium text-gray-900 flex-1 capitalize">
-                      {name}
-                    </span>
-                    <div className="flex items-center gap-1">
-                      <span className="text-sm font-bold text-gray-900 group-hover:text-blue-600 transition-colors">{data.value}</span>
-                      {!isEditing && (
-                        <button
-                          onClick={() => handleRollSavingThrow(name, data.value)}
-                          className="p-1 rounded opacity-0 group-hover:opacity-100 hover:bg-blue-100 text-blue-600 hover:text-blue-700 transition-all flex-shrink-0"
-                          title={`Roll ${name.charAt(0).toUpperCase() + name.slice(1)} Save`}
-                        >
-                          <Dice5 className="w-4 h-4" />
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
+
+          </div>
+          {/*Center Column - Skills*/}
+          <div className="col-span-3 space-y-4">
 
             {/* Skills */}
             <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
@@ -1041,23 +1135,53 @@ export default function CharacterSheet({ character: initialCharacter, onBack }: 
                 ))}
               </div>
             </div>
+            {/* Saving Throws */}
+            <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
+              <h3 className="text-sm font-bold text-gray-700 uppercase mb-3">Saving Throws</h3>
+              <div className="space-y-2">
+                {Object.entries(character.savingThrows).map(([name, data]) => (
+                  <div key={name} className="flex items-center gap-2 group">
+                    <input
+                      type="checkbox"
+                      checked={data.proficient}
+                      onChange={(e) => handleSavingThrowChange(name, e.target.checked)}
+                      disabled={!isEditing}
+                      className="w-4 h-4 text-blue-600 rounded"
+                    />
+                    <span className="text-sm font-medium text-gray-900 flex-1 capitalize">
+                      {name}
+                    </span>
+                    <div className="flex items-center gap-1">
+                      <span className="text-sm font-bold text-gray-900 group-hover:text-blue-600 transition-colors">{data.value}</span>
+                      {!isEditing && (
+                        <button
+                          onClick={() => handleRollSavingThrow(name, data.value)}
+                          className="p-1 rounded opacity-0 group-hover:opacity-100 hover:bg-blue-100 text-blue-600 hover:text-blue-700 transition-all flex-shrink-0"
+                          title={`Roll ${name.charAt(0).toUpperCase() + name.slice(1)} Save`}
+                        >
+                          <Dice5 className="w-4 h-4" />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
           </div>
-
-          {/* Center Column - Actions & Content */}
+          {/* Right Column - Actions & Content */}
           <div className="col-span-6 space-y-4">
             {/* Tabs */}
             <div className="bg-white rounded-lg shadow-sm border border-gray-200">
               <div className="border-b border-gray-200">
                 <div className="flex">
-                  {(['actions', 'spells', 'inventory', 'features'] as const).map((tab) => (
+                  {(['actions', 'spells', 'inventory', 'features', 'background'] as const).map((tab) => (
                     <button
                       key={tab}
                       onClick={() => setActiveTab(tab)}
-                      className={`px-6 py-3 text-sm font-medium capitalize transition-colors ${
-                        activeTab === tab
-                          ? 'text-blue-600 border-b-2 border-blue-600'
-                          : 'text-gray-600 hover:text-gray-900'
-                      }`}
+                      className={`px-6 py-3 text-sm font-medium capitalize transition-colors ${activeTab === tab
+                        ? 'text-blue-600 border-b-2 border-blue-600'
+                        : 'text-gray-600 hover:text-gray-900'
+                        }`}
                     >
                       {tab}
                     </button>
@@ -1186,11 +1310,10 @@ export default function CharacterSheet({ character: initialCharacter, onBack }: 
                                       <button
                                         key={fIdx}
                                         onClick={() => handleRollBonusDamage(feature.name, feature.dice!)}
-                                        className={`px-2 py-1 text-xs text-white rounded transition-colors flex items-center gap-1 ${
-                                          feature.critOnly
-                                            ? 'bg-red-600 hover:bg-red-700'
-                                            : 'bg-purple-600 hover:bg-purple-700'
-                                        }`}
+                                        className={`px-2 py-1 text-xs text-white rounded transition-colors flex items-center gap-1 ${feature.critOnly
+                                          ? 'bg-red-600 hover:bg-red-700'
+                                          : 'bg-purple-600 hover:bg-purple-700'
+                                          }`}
                                         title={feature.condition}
                                       >
                                         <span>{feature.label}</span>
@@ -1781,7 +1904,7 @@ export default function CharacterSheet({ character: initialCharacter, onBack }: 
                     {/* Race/Class Overview Section */}
                     <div className="space-y-3">
                       <h3 className="text-lg font-bold text-gray-900">Overview</h3>
-                      
+
                       {/* Race */}
                       <div className="border border-gray-200 rounded-lg overflow-hidden bg-white">
                         <button
@@ -1795,49 +1918,173 @@ export default function CharacterSheet({ character: initialCharacter, onBack }: 
                           <span className="text-gray-500">{expandedFeatures[-1] ? '−' : '+'}</span>
                         </button>
                         {expandedFeatures[-1] && (
-                          <div className="px-4 py-3 text-sm text-gray-700 bg-gray-50">
-                            {isEditing ? (
-                              <textarea
-                                value={character.raceDescription}
-                                onChange={(e) => handleCharacterChange('raceDescription', e.target.value)}
-                                className="w-full bg-white border border-gray-300 rounded px-2 py-1 text-sm min-h-24"
-                              />
-                            ) : (
-                              <p>{character.raceDescription || 'No description provided'}</p>
+                          <div className="px-4 py-3 text-sm text-gray-700 bg-gray-50 space-y-3">
+                            {isEditing && (
+                              <div>
+                                <label className="text-sm font-semibold text-gray-600">Race Name</label>
+                                <input
+                                  type="text"
+                                  value={character.race}
+                                  onChange={(e) => handleCharacterChange('race', e.target.value)}
+                                  className="w-full mt-1 bg-white border border-gray-300 rounded px-2 py-1 text-sm"
+                                  placeholder="Race name"
+                                />
+                              </div>
                             )}
+                            <div>
+                              <label className="text-sm font-semibold text-gray-600">Description</label>
+                              {isEditing ? (
+                                <textarea
+                                  value={character.raceDescription}
+                                  onChange={(e) => handleCharacterChange('raceDescription', e.target.value)}
+                                  className="w-full mt-1 bg-white border border-gray-300 rounded px-2 py-1 text-sm min-h-24"
+                                />
+                              ) : (
+                                <p>{character.raceDescription || 'No description provided'}</p>
+                              )}
+                            </div>
                           </div>
                         )}
                       </div>
 
-                      {/* Class */}
-                      <div className="border border-gray-200 rounded-lg overflow-hidden bg-white">
+                      {/* Classes */}
+                      {character.classes && character.classes.length > 0 ? (
+                        <div className="space-y-3">
+                          {character.classes.map((cls, classIdx) => (
+                            <div key={classIdx} className="border border-gray-200 rounded-lg overflow-hidden bg-white">
+                              <button
+                                onClick={() => toggleFeatureExpanded(`class-${classIdx}`)}
+                                className="w-full px-4 py-3 bg-gradient-to-r from-blue-50 to-cyan-50 border-b border-gray-200 flex items-center justify-between hover:bg-gradient-to-r hover:from-blue-100 hover:to-cyan-100 transition-colors"
+                              >
+                                <div className="text-left">
+                                  <div className="font-bold text-gray-900">{cls.name} (Level {cls.level})</div>
+                                  {cls.subclass && <div className="text-xs text-gray-600">{cls.subclass}</div>}
+                                </div>
+                                <span className="text-gray-500">{expandedFeatures[`class-${classIdx}`] ? '−' : '+'}</span>
+                              </button>
+                              {expandedFeatures[`class-${classIdx}`] && (
+                                <div className="px-4 py-3 text-sm text-gray-700 bg-gray-50 space-y-3">
+                                  {isEditing ? (
+                                    <>
+                                      <div>
+                                        <label className="text-sm font-semibold text-gray-600">Class Name</label>
+                                        <input
+                                          type="text"
+                                          value={cls.name}
+                                          onChange={(e) => {
+                                            const newClasses = [...character.classes!];
+                                            newClasses[classIdx].name = e.target.value;
+                                            setCharacter({ ...character, classes: newClasses });
+                                          }}
+                                          className="w-full mt-1 bg-white border border-gray-300 rounded px-2 py-1 text-sm"
+                                        />
+                                      </div>
+                                      <div>
+                                        <label className="text-sm font-semibold text-gray-600">Level</label>
+                                        <input
+                                          type="number"
+                                          value={cls.level}
+                                          min="1"
+                                          max="20"
+                                          onChange={(e) => {
+                                            const newClasses = [...character.classes!];
+                                            newClasses[classIdx].level = parseInt(e.target.value) || 1;
+                                            setCharacter({ ...character, classes: newClasses });
+                                          }}
+                                          className="w-full mt-1 bg-white border border-gray-300 rounded px-2 py-1 text-sm"
+                                        />
+                                      </div>
+                                      <div>
+                                        <label className="text-sm font-semibold text-gray-600">Subclass (optional)</label>
+                                        <input
+                                          type="text"
+                                          value={cls.subclass}
+                                          onChange={(e) => {
+                                            const newClasses = [...character.classes!];
+                                            newClasses[classIdx].subclass = e.target.value;
+                                            setCharacter({ ...character, classes: newClasses });
+                                          }}
+                                          className="w-full mt-1 bg-white border border-gray-300 rounded px-2 py-1 text-sm"
+                                        />
+                                      </div>
+                                      <div>
+                                        <label className="text-sm font-semibold text-gray-600">Description</label>
+                                        <textarea
+                                          value={cls.description || ''}
+                                          onChange={(e) => {
+                                            const newClasses = [...character.classes!];
+                                            newClasses[classIdx].description = e.target.value;
+                                            setCharacter({ ...character, classes: newClasses });
+                                          }}
+                                          className="w-full mt-1 bg-white border border-gray-300 rounded px-2 py-1 text-sm min-h-20"
+                                        />
+                                      </div>
+                                      {character.classes!.length > 1 && (
+                                        <button
+                                          onClick={() => {
+                                            const newClasses = character.classes!.filter((_, i) => i !== classIdx);
+                                            setCharacter({ ...character, classes: newClasses });
+                                          }}
+                                          className="px-3 py-1 bg-red-600 hover:bg-red-700 text-white rounded text-sm font-medium transition-colors"
+                                        >
+                                          Remove Class
+                                        </button>
+                                      )}
+                                    </>
+                                  ) : (
+                                    <p>{cls.description || 'No description provided'}</p>
+                                  )}
+                                </div>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="border border-gray-200 rounded-lg overflow-hidden bg-white">
+                          <button
+                            onClick={() => toggleFeatureExpanded(-2)}
+                            className="w-full px-4 py-3 bg-gradient-to-r from-blue-50 to-cyan-50 border-b border-gray-200 flex items-center justify-between hover:bg-gradient-to-r hover:from-blue-100 hover:to-cyan-100 transition-colors"
+                          >
+                            <div className="text-left">
+                              <div className="font-bold text-gray-900">{character.class}</div>
+                              <div className="text-xs text-gray-600">Class</div>
+                            </div>
+                            <span className="text-gray-500">{expandedFeatures[-2] ? '−' : '+'}</span>
+                          </button>
+                          {expandedFeatures[-2] && (
+                            <div className="px-4 py-3 text-sm text-gray-700 bg-gray-50">
+                              {isEditing ? (
+                                <textarea
+                                  value={character.classDescription}
+                                  onChange={(e) => handleCharacterChange('classDescription', e.target.value)}
+                                  className="w-full bg-white border border-gray-300 rounded px-2 py-1 text-sm min-h-24"
+                                />
+                              ) : (
+                                <p>{character.classDescription || 'No description provided'}</p>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      {/* Add Class Button in Edit Mode */}
+                      {isEditing && character.classes && character.classes.length < 3 && (
                         <button
-                          onClick={() => toggleFeatureExpanded(-2)}
-                          className="w-full px-4 py-3 bg-gradient-to-r from-blue-50 to-cyan-50 border-b border-gray-200 flex items-center justify-between hover:bg-gradient-to-r hover:from-blue-100 hover:to-cyan-100 transition-colors"
+                          onClick={() => {
+                            const newClasses = [
+                              ...(character.classes || []),
+                              { name: 'Class', subclass: '', level: 1, description: '' }
+                            ];
+                            setCharacter({ ...character, classes: newClasses });
+                          }}
+                          className="w-full px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded text-sm font-medium transition-colors"
                         >
-                          <div className="text-left">
-                            <div className="font-bold text-gray-900">{character.class}</div>
-                            <div className="text-xs text-gray-600">Class</div>
-                          </div>
-                          <span className="text-gray-500">{expandedFeatures[-2] ? '−' : '+'}</span>
+                          + Add Class
                         </button>
-                        {expandedFeatures[-2] && (
-                          <div className="px-4 py-3 text-sm text-gray-700 bg-gray-50">
-                            {isEditing ? (
-                              <textarea
-                                value={character.classDescription}
-                                onChange={(e) => handleCharacterChange('classDescription', e.target.value)}
-                                className="w-full bg-white border border-gray-300 rounded px-2 py-1 text-sm min-h-24"
-                              />
-                            ) : (
-                              <p>{character.classDescription || 'No description provided'}</p>
-                            )}
-                          </div>
-                        )}
-                      </div>
+                      )}
 
-                      {/* Subclass */}
-                      {character.subclass && (
+                      {/* Subclass (legacy, for old single-class characters) */}
+                      {!character.classes || character.classes.length === 0 && character.subclass && (
                         <div className="border border-gray-200 rounded-lg overflow-hidden bg-white">
                           <button
                             onClick={() => toggleFeatureExpanded(-3)}
@@ -1879,7 +2126,7 @@ export default function CharacterSheet({ character: initialCharacter, onBack }: 
                           </button>
                         )}
                       </div>
-                      
+
                       {character.features && character.features.length > 0 ? (
                         <div className="space-y-2">
                           {character.features.map((feature, idx) => (
@@ -1956,100 +2203,119 @@ export default function CharacterSheet({ character: initialCharacter, onBack }: 
                     </div>
                   </div>
                 )}
+
+                {/* Background Tab */}
+                {activeTab === 'background' && (
+                  <div className="space-y-6">
+                    <div className="col-span-3 space-y-4">
+                      {/* Character Info */}
+                      <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
+                        <h3 className="text-sm font-bold text-gray-700 uppercase mb-3">Character Info</h3>
+                        <div className="space-y-3 text-sm">
+                          <div>
+                            <div className="text-gray-600 font-medium mb-1">Background</div>
+                            {isEditing ? (
+                              <textarea
+                                value={character.background}
+                                onChange={(e) => handleCharacterChange('background', e.target.value)}
+                                className="w-full bg-white border border-gray-300 rounded px-2 py-1 text-gray-900 min-h-20"
+                                placeholder="Character background"
+                              />
+                            ) : (
+                              <div className="text-gray-900">{character.background}</div>
+                            )}
+                          </div>
+                          <div>
+                            <div className="text-gray-600 font-medium mb-1">Alignment</div>
+                            {isEditing ? (
+                              <input
+                                type="text"
+                                value={character.alignment}
+                                onChange={(e) => handleCharacterChange('alignment', e.target.value)}
+                                className="w-full bg-white border border-gray-300 rounded px-2 py-1 text-gray-900"
+                              />
+                            ) : (
+                              <div className="text-gray-900">{character.alignment}</div>
+                            )}
+                          </div>
+                          <div>
+                            <div className="text-gray-600 font-medium mb-1">Experience Points</div>
+                            {isEditing ? (
+                              <input
+                                type="text"
+                                value={character.experiencePoints}
+                                onChange={(e) => handleCharacterChange('experiencePoints', e.target.value)}
+                                className="w-full bg-white border border-gray-300 rounded px-2 py-1 text-gray-900"
+                              />
+                            ) : (
+                              <div className="text-gray-900">{character.experiencePoints}</div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Personality Traits */}
+                      <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
+                        <h3 className="text-sm font-bold text-gray-700 uppercase mb-3">Personality</h3>
+                        <div className="space-y-3 text-sm">
+                          <div>
+                            <div className="text-gray-600 font-medium mb-1">Traits</div>
+                            {isEditing ? (
+                              <textarea
+                                value={character.personalityTraits}
+                                onChange={(e) => handleCharacterChange('personalityTraits', e.target.value)}
+                                className="w-full bg-white border border-gray-300 rounded px-2 py-1 text-gray-900 min-h-16"
+                              />
+                            ) : (
+                              <div className="text-gray-900">{character.personalityTraits}</div>
+                            )}
+                          </div>
+                          <div>
+                            <div className="text-gray-600 font-medium mb-1">Ideals</div>
+                            {isEditing ? (
+                              <textarea
+                                value={character.ideals}
+                                onChange={(e) => handleCharacterChange('ideals', e.target.value)}
+                                className="w-full bg-white border border-gray-300 rounded px-2 py-1 text-gray-900 min-h-16"
+                              />
+                            ) : (
+                              <div className="text-gray-900">{character.ideals}</div>
+                            )}
+                          </div>
+                          <div>
+                            <div className="text-gray-600 font-medium mb-1">Bonds</div>
+                            {isEditing ? (
+                              <textarea
+                                value={character.bonds}
+                                onChange={(e) => handleCharacterChange('bonds', e.target.value)}
+                                className="w-full bg-white border border-gray-300 rounded px-2 py-1 text-gray-900 min-h-16"
+                              />
+                            ) : (
+                              <div className="text-gray-900">{character.bonds}</div>
+                            )}
+                          </div>
+                          <div>
+                            <div className="text-gray-600 font-medium mb-1">Flaws</div>
+                            {isEditing ? (
+                              <textarea
+                                value={character.flaws}
+                                onChange={(e) => handleCharacterChange('flaws', e.target.value)}
+                                className="w-full bg-white border border-gray-300 rounded px-2 py-1 text-gray-900 min-h-16"
+                              />
+                            ) : (
+                              <div className="text-gray-900">{character.flaws}</div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           </div>
 
-          {/* Right Column - Character Details */}
-          <div className="col-span-3 space-y-4">
-            {/* Character Info */}
-            <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
-              <h3 className="text-sm font-bold text-gray-700 uppercase mb-3">Character Info</h3>
-              <div className="space-y-3 text-sm">
-                <div>
-                  <div className="text-gray-600 font-medium mb-1">Alignment</div>
-                  {isEditing ? (
-                    <input
-                      type="text"
-                      value={character.alignment}
-                      onChange={(e) => handleCharacterChange('alignment', e.target.value)}
-                      className="w-full bg-white border border-gray-300 rounded px-2 py-1 text-gray-900"
-                    />
-                  ) : (
-                    <div className="text-gray-900">{character.alignment}</div>
-                  )}
-                </div>
-                <div>
-                  <div className="text-gray-600 font-medium mb-1">Experience Points</div>
-                  {isEditing ? (
-                    <input
-                      type="text"
-                      value={character.experiencePoints}
-                      onChange={(e) => handleCharacterChange('experiencePoints', e.target.value)}
-                      className="w-full bg-white border border-gray-300 rounded px-2 py-1 text-gray-900"
-                    />
-                  ) : (
-                    <div className="text-gray-900">{character.experiencePoints}</div>
-                  )}
-                </div>
-              </div>
-            </div>
 
-            {/* Personality Traits */}
-            <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
-              <h3 className="text-sm font-bold text-gray-700 uppercase mb-3">Personality</h3>
-              <div className="space-y-3 text-sm">
-                <div>
-                  <div className="text-gray-600 font-medium mb-1">Traits</div>
-                  {isEditing ? (
-                    <textarea
-                      value={character.personalityTraits}
-                      onChange={(e) => handleCharacterChange('personalityTraits', e.target.value)}
-                      className="w-full bg-white border border-gray-300 rounded px-2 py-1 text-gray-900 min-h-16"
-                    />
-                  ) : (
-                    <div className="text-gray-900">{character.personalityTraits}</div>
-                  )}
-                </div>
-                <div>
-                  <div className="text-gray-600 font-medium mb-1">Ideals</div>
-                  {isEditing ? (
-                    <textarea
-                      value={character.ideals}
-                      onChange={(e) => handleCharacterChange('ideals', e.target.value)}
-                      className="w-full bg-white border border-gray-300 rounded px-2 py-1 text-gray-900 min-h-16"
-                    />
-                  ) : (
-                    <div className="text-gray-900">{character.ideals}</div>
-                  )}
-                </div>
-                <div>
-                  <div className="text-gray-600 font-medium mb-1">Bonds</div>
-                  {isEditing ? (
-                    <textarea
-                      value={character.bonds}
-                      onChange={(e) => handleCharacterChange('bonds', e.target.value)}
-                      className="w-full bg-white border border-gray-300 rounded px-2 py-1 text-gray-900 min-h-16"
-                    />
-                  ) : (
-                    <div className="text-gray-900">{character.bonds}</div>
-                  )}
-                </div>
-                <div>
-                  <div className="text-gray-600 font-medium mb-1">Flaws</div>
-                  {isEditing ? (
-                    <textarea
-                      value={character.flaws}
-                      onChange={(e) => handleCharacterChange('flaws', e.target.value)}
-                      className="w-full bg-white border border-gray-300 rounded px-2 py-1 text-gray-900 min-h-16"
-                    />
-                  ) : (
-                    <div className="text-gray-900">{character.flaws}</div>
-                  )}
-                </div>
-              </div>
-            </div>
-          </div>
         </div>
       </div>
 

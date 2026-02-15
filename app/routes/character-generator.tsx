@@ -109,16 +109,24 @@ interface Feature {
   category?: string;
 }
 
+interface CharacterClass {
+    name: string;
+    subclass: string;
+    level: number;
+    description?: string;
+}
+
 interface CharacterData {
     characterName: string;
     playerName: string;
     race: string;
     raceDescription: string;
-    class: string;
-    classDescription: string;
-    level: string;
-    subclass: string;
-    subclassDescription: string;
+    classes?: CharacterClass[];
+    class?: string;
+    classDescription?: string;
+    level?: string;
+    subclass?: string;
+    subclassDescription?: string;
     background: string;
     alignment: string;
     experiencePoints: string;
@@ -198,6 +206,39 @@ interface CharacterData {
     pp: string;
 }
 
+const migrateCharacterData = (data: any): CharacterData => {
+    // If data already has classes array with proper structure, return as is
+    if (data.classes && Array.isArray(data.classes) && data.classes.length > 0) {
+        return data;
+    }
+
+    // If data has old single-class format, convert to new format
+    if (data.class && !data.classes) {
+        const level = parseInt(data.level) || 1;
+        return {
+            ...data,
+            classes: [{
+                name: data.class,
+                subclass: data.subclass || '',
+                level: level,
+                description: data.classDescription,
+            }],
+            // Keep old fields for compatibility
+            level: data.level,
+            class: data.class,
+            subclass: data.subclass,
+            classDescription: data.classDescription,
+        };
+    }
+
+    // If no classes and no single class, create default
+    if (!data.classes) {
+        data.classes = [];
+    }
+
+    return data;
+};
+
 export default function CharacterGenerator() {
     const navigate = useNavigate();
     const [prompt, setPrompt] = useState('');
@@ -227,16 +268,46 @@ export default function CharacterGenerator() {
             formData.append('prompt', `Generate a complete D&D 5e character based on this prompt: "${userPrompt}"
 
 Please return ONLY a JSON object with these exact field names and appropriate values:
+
+⚠️ IMPORTANT: If the user request contains "/" or mentions multiple classes, use the MULTICLASS format below!
+If it's a single class, use the SINGLE CLASS format.
+
+SINGLE CLASS FORMAT (for single-class characters):
 {
   "characterName": "string",
   "playerName": "",
-  "race": "string", 
+  "race": "string",
   "raceDescription": "string (2-3 sentences describing the racial traits, culture, and abilities)",
   "class": "string (e.g., 'Fighter')",
   "classDescription": "string (2-3 sentences describing the class role, abilities, and playstyle)",
   "level": "string (e.g., '3')",
   "subclass": "string (e.g., 'Eldritch Knight' - the subclass/archetype; use empty string if no subclass)",
   "subclassDescription": "string (2-3 sentences describing the subclass features; empty string if no subclass)",
+
+MULTICLASS FORMAT (use if user specifies multiple classes with "/" or "and"):
+{
+  "characterName": "string",
+  "playerName": "",
+  "race": "string",
+  "raceDescription": "string (2-3 sentences describing the racial traits, culture, and abilities)",
+  "classes": [
+    {
+      "name": "string (e.g., 'Cleric')",
+      "subclass": "string (e.g., 'Divine Soul')",
+      "level": number (NOT a string! e.g., 1 or 2)
+    },
+    {
+      "name": "string (e.g., 'Sorcerer')",
+      "subclass": "string",
+      "level": number
+    }
+  ],
+  "totalLevel": number (sum of all class levels),
+  "class": "", (leave empty for multiclass)
+  "subclass": "", (leave empty for multiclass)
+  "level": "", (leave empty for multiclass)
+  "classDescription": "", (leave empty for multiclass)
+  "subclassDescription": "", (leave empty for multiclass)
   "background": "string",
   "alignment": "string",
   "experiencePoints": "string",
@@ -300,6 +371,14 @@ Please return ONLY a JSON object with these exact field names and appropriate va
     "performance": { "proficient": false, "value": "+0" },
     "persuasion": { "proficient": false, "value": "+0" }
   },
+NOTE: For skills, calculate the value as:
+  - athletics/acrobatics/sleightOfHand/stealth use DEX or STR (athletics uses STR, others use DEX)
+  - arcana/history/investigation/nature/religion use INT
+  - animalHandling/insight/medicine/perception/survival use WIS
+  - deception/intimidation/performance/persuasion use CHA
+  - value = ability_modifier + (proficiency_bonus if proficient in skill)
+  - Example: If STR is 14 (mod +2) and character is proficient in athletics with +2 prof bonus, athletics value should be "+4"
+  - If not proficient: just use the ability modifier (e.g., DEX 16 = mod +3, acrobatics = "+3" if not proficient, "+5" if proficient with +2 bonus)
   "savingThrows": {
     "strength": { "proficient": false, "value": "+0" },
     "dexterity": { "proficient": false, "value": "+0" },
@@ -308,6 +387,9 @@ Please return ONLY a JSON object with these exact field names and appropriate va
     "wisdom": { "proficient": false, "value": "+0" },
     "charisma": { "proficient": false, "value": "+0" }
   },
+NOTE: For saving throws, calculate the value as:
+  - value = ability_modifier + (proficiency_bonus if proficient in that save)
+  - Example: WIS 16 (mod +3) with proficiency is "+5" (assuming +2 prof bonus at low level)
   "cantrips": [
     {
       "name": "string (e.g., 'Fire Bolt')",
@@ -350,10 +432,14 @@ Please return ONLY a JSON object with these exact field names and appropriate va
   "pp": "0"
 }
 
-Ensure mathematical accuracy (modifiers = (ability - 10) / 2, rounded down). 
+Ensure mathematical accuracy (modifiers = (ability - 10) / 2, rounded down).
 For spellcasters, include all cantrips available at this level, plus a thematic selection of leveled spells that the character would reasonably prepare/know based on their class spell list and level.
 Include 4-6 important class and racial features in the features array, each with a clear description of what it does.
-Make personality traits, background, and story elements match the theme requested in the prompt.`);
+Make personality traits, background, and story elements match the theme requested in the prompt.
+
+REMEMBER: If the user prompt contains "/" between class names, "and", or mentions multiple classes, generate MULTICLASS format.
+Example: "cleric 1/divine soul sorcerer 1" → Use MULTICLASS format with classes array
+Never combine multiple classes into one level!`);
             formData.append('apiKey', apiKey);
 
             const response = await fetch('/api/character', {
@@ -452,14 +538,17 @@ Make personality traits, background, and story elements match the theme requeste
         reader.onload = (e) => {
             try {
                 const jsonData = JSON.parse(e.target?.result as string);
-                
+
                 // Validate that it's a valid character data object
                 if (!jsonData.characterName) {
                     throw new Error('Invalid character data: missing characterName field');
                 }
 
+                // Migrate old format to new format
+                const migratedData = migrateCharacterData(jsonData);
+
                 // Set the character data and show the sheet
-                setCharacterData(jsonData as CharacterData);
+                setCharacterData(migratedData);
                 setShowSheet(true);
                 alert(`Successfully imported character: ${jsonData.characterName}`);
             } catch (error) {

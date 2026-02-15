@@ -143,25 +143,30 @@ async function executeTool(
 function validateCharacterSpells(characterJson: any): { isValid: boolean; errors: string[] } {
   const errors: string[] = [];
 
-  if (!characterJson.level) {
+  // Calculate total level from either old single-class format or new multiclass format
+  let totalLevel = 0;
+  if (characterJson.classes && Array.isArray(characterJson.classes) && characterJson.classes.length > 0) {
+    totalLevel = characterJson.classes.reduce((sum: number, cls: any) => sum + (cls.level || 0), 0);
+  } else if (characterJson.level) {
+    totalLevel = parseInt(characterJson.level);
+  } else {
     errors.push("Character level not specified");
     return { isValid: false, errors };
   }
 
-  const levelNum = parseInt(characterJson.level);
-  if (isNaN(levelNum)) {
+  if (isNaN(totalLevel) || totalLevel <= 0) {
     errors.push("Character level is not a valid number");
     return { isValid: false, errors };
   }
 
-  const maxSpellLevel = Math.ceil(levelNum / 2);
+  const maxSpellLevel = Math.ceil(totalLevel / 2);
 
   // Validate spells
   if (characterJson.spells && Array.isArray(characterJson.spells)) {
     characterJson.spells.forEach((spell: any) => {
       // Handle both string (legacy) and object spell formats
       const spellName = typeof spell === 'string' ? spell : spell.name;
-      
+
       if (!spellName) return; // Skip if no name found
 
       const highLevelSpells: Record<string, number> = {
@@ -177,7 +182,7 @@ function validateCharacterSpells(characterJson: any): { isValid: boolean; errors
       const spellNameLower = spellName.toLowerCase();
       for (const [name, level] of Object.entries(highLevelSpells)) {
         if (spellNameLower.includes(name) && level > maxSpellLevel) {
-          errors.push(`${spellName} is level ${level}, but level ${levelNum} characters can only cast up to level ${maxSpellLevel} spells`);
+          errors.push(`${spellName} is level ${level}, but level ${totalLevel} characters can only cast up to level ${maxSpellLevel} spells`);
         }
       }
     });
@@ -201,6 +206,20 @@ export const action: ActionFunction = async ({ request }) => {
   try {
     const systemPrompt = `You are an expert D&D 5e character generator. You create detailed, accurate characters that follow official D&D 5e rules.
 
+⚠️ CRITICAL: READ THE USER REQUEST CAREFULLY FOR CLASS SPECIFICATIONS ⚠️
+
+MULTICLASS DETECTION - HIGHEST PRIORITY:
+Look for these patterns in the user's request:
+- "/" character between class names (e.g., "Cleric/Sorcerer", "fighter/wizard", "rogue/bard")
+- "and" between class names (e.g., "Cleric and Sorcerer")
+- Multiple class mentions with levels (e.g., "Cleric 1 Sorcerer 1", "1 level Fighter 2 level Wizard")
+- The word "multiclass" or "multiclassed"
+- Class abbreviations split by "/" (e.g., "C1/S1", "F2/W1")
+
+🔴 IF ANY OF THESE PATTERNS ARE DETECTED, YOU MUST USE MULTICLASS FORMAT 🔴
+Do NOT use single-class format if the user asks for multiple classes.
+Do NOT combine multiple classes into one class level.
+
 CRITICAL RULES FOR TOOL USAGE:
 1. Only search for REAL D&D 5e spells, feats, and classes
 2. Never make up generic terms like "buff", "attack", "magic"
@@ -221,39 +240,92 @@ EXAMPLE FEATS (not spells):
 Great Weapon Master, Polearm Master, Sharpshooter, Lucky, Alert, Resilient, Magic Initiate, War Caster
 
 When generating a character:
-1. Choose a valid BASE CLASS from the list above
-2. Use get_class_features with the BASE CLASS name
+1. Choose 1-3 BASE CLASSES from the list above
+2. Use get_class_features with each CLASS name
 3. Search for REAL spell names (from the examples or actual D&D 5e spells)
 4. Search for REAL feat names (from the examples or actual D&D 5e feats)
-5. ALWAYS respect spell level restrictions based on character level
+5. ALWAYS respect spell level restrictions based on TOTAL character level
 
-SPELL LEVEL REQUIREMENTS:
-- Level 1 characters: only cantrips and level 1 spells
-- Level 3 characters: cantrips, level 1-2 spells
-- Level 5 characters: cantrips, level 1-3 spells
-- Level 9 characters: cantrips, level 1-5 spells
+SPELL LEVEL REQUIREMENTS (total level):
+- Level 1-2 characters: only cantrips and level 1 spells
+- Level 3-4 characters: cantrips, level 1-2 spells
+- Level 5-6 characters: cantrips, level 1-3 spells
+- Level 9+ characters: cantrips, level 1-5 spells
 - Level 17+ characters: all spell levels
 
-Return character data in JSON format:
+═══════════════════════════════════════════════════════════════
+SINGLE CLASS FORMAT (use ONLY if user requests ONE class):
+═══════════════════════════════════════════════════════════════
 {
-  "character_name": string,
-  "class": string,
-  "race": string,
-  "level": number,
-  "abilities": {
-    "strength": number,
-    "dexterity": number,
-    "constitution": number,
-    "intelligence": number,
-    "wisdom": number,
-    "charisma": number
-  },
-  "skills": string[],
-  "feats": string[],
-  "spells": string[],
-  "equipment": string[],
-  "background": string
-}`;
+  "characterName": "string",
+  "class": "string",
+  "subclass": "string",
+  "level": "string",
+  "race": "string",
+  ... rest of fields ...
+}
+
+Example: User says "Create a Fighter level 5"
+Response:
+{
+  "characterName": "Aragorn",
+  "class": "Fighter",
+  "subclass": "Champion",
+  "level": "5",
+  ... rest of fields ...
+}
+
+═══════════════════════════════════════════════════════════════
+MULTICLASS FORMAT (MANDATORY if user mentions multiple classes):
+═══════════════════════════════════════════════════════════════
+{
+  "characterName": "string",
+  "classes": [
+    {
+      "name": "string",           // FIRST class name
+      "subclass": "string",       // FIRST class subclass
+      "level": number             // FIRST class level (NOT a string!)
+    },
+    {
+      "name": "string",           // SECOND class name
+      "subclass": "string",       // SECOND class subclass
+      "level": number             // SECOND class level (NOT a string!)
+    }
+  ],
+  "totalLevel": number,           // SUM of all class levels (e.g., 1+1=2)
+  "race": "string",
+  ... rest of fields ...
+}
+
+Example: User says "Create Cleric 1/Sorcerer 1"
+Response:
+{
+  "characterName": "Seraphine",
+  "classes": [
+    {
+      "name": "Cleric",
+      "subclass": "Divine Soul",
+      "level": 1
+    },
+    {
+      "name": "Sorcerer",
+      "subclass": "Divine Soul",
+      "level": 1
+    }
+  ],
+  "totalLevel": 2,
+  "race": "Human",
+  ... rest of fields ...
+}
+
+═══════════════════════════════════════════════════════════════
+FINAL REMINDER:
+- If you see "/" in the request → MULTICLASS FORMAT
+- If you see "and" between class names → MULTICLASS FORMAT
+- If you see level numbers split between classes → MULTICLASS FORMAT
+- Otherwise → SINGLE CLASS FORMAT
+═══════════════════════════════════════════════════════════════`;
+
 
     let messages: Array<any> = [
       { role: "user", content: prompt as string }
@@ -336,19 +408,22 @@ Return character data in JSON format:
     // Extract JSON from assistant's response
     let characterData: any = null;
     let jsonContent = assistantMessage.content || "";
-    
-    console.log("📝 Assistant final response:", jsonContent.substring(0, 200));
+
+    console.log("📝 Assistant final response:", jsonContent.substring(0, 500));
 
     try {
       // Try to extract JSON from markdown code blocks
       const jsonMatch = jsonContent.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
       if (jsonMatch) {
         jsonContent = jsonMatch[1];
+        console.log("📋 Extracted JSON from code block");
       }
-      
+
       characterData = JSON.parse(jsonContent);
       console.log("✅ Parsed character data successfully");
-      
+      console.log("📊 Character format:", characterData.classes ? "MULTICLASS" : "SINGLE-CLASS");
+      console.log("📊 Classes:", characterData.classes || `${characterData.class} (Level ${characterData.level})`);
+
       // Validate character spells against level
       const validation = validateCharacterSpells(characterData);
       if (!validation.isValid) {
@@ -357,7 +432,12 @@ Return character data in JSON format:
       }
     } catch (parseError) {
       console.error("❌ Failed to parse character JSON:", parseError);
-      console.error("📄 Content attempted to parse:", jsonContent);
+      console.error("📄 Raw content attempted to parse:", jsonContent.substring(0, 500));
+      console.error("❌ Error details:", {
+        error: String(parseError),
+        contentLength: jsonContent.length,
+        contentStart: jsonContent.substring(0, 100),
+      });
       throw new Error(`Failed to parse character data: ${String(parseError)}`);
     }
 
