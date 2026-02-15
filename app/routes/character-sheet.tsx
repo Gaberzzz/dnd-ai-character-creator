@@ -189,6 +189,8 @@ const skillToAbility: Record<string, string> = {
 export default function CharacterSheet({ character: initialCharacter, onBack }: CharacterSheetProps) {
   const [character, setCharacter] = useState<CharacterData>(initialCharacter);
   const [isEditing, setIsEditing] = useState(false);
+  const [hpAdjustAmount, setHpAdjustAmount] = useState<string>('');
+  const [editingTempHp, setEditingTempHp] = useState(false);
   const [activeTab, setActiveTab] = useState<'actions' | 'spells' | 'inventory' | 'features'>('actions');
   const [expandedFeatures, setExpandedFeatures] = useState<{ [key: number]: boolean }>({});
   const [pdfVersion, setPdfVersion] = useState<'2024' | 'original'>('2024');
@@ -367,6 +369,41 @@ export default function CharacterSheet({ character: initialCharacter, onBack }: 
     }));
   };
 
+  // Cantrip handlers
+  const handleAddCantrip = () => {
+    const newCantrip = {
+      name: 'New Cantrip',
+      level: '0',
+      school: '',
+      castingTime: '1 action',
+      range: 'Self',
+      duration: 'Instantaneous',
+      description: '',
+      concentration: false,
+      ritual: false,
+      components: '',
+    };
+    handleCharacterChange('cantrips', [...character.cantrips, newCantrip]);
+  };
+
+  const handleDeleteCantrip = (index: number) => {
+    handleCharacterChange('cantrips', character.cantrips.filter((_, i) => i !== index));
+  };
+
+  // Weapon/Attack handlers
+  const handleAddAttack = () => {
+    const newAttack = {
+      name: 'New Weapon',
+      atkBonus: '+0',
+      damage: '1d4',
+    };
+    handleCharacterChange('attacks', [...character.attacks, newAttack]);
+  };
+
+  const handleDeleteAttack = (index: number) => {
+    handleCharacterChange('attacks', character.attacks.filter((_, i) => i !== index));
+  };
+
   // Roll handlers
   const parseModifier = (modString: string): number => {
     const match = modString.match(/([+-]?\d+)/);
@@ -414,6 +451,49 @@ export default function CharacterSheet({ character: initialCharacter, onBack }: 
     const result = rollDamage(featureName, dice);
     addRoll(result);
     setOpenSmitePicker(null);
+  };
+
+  // HP adjustment handlers
+  const handleApplyHealing = () => {
+    const amount = parseInt(hpAdjustAmount) || 0;
+    if (amount <= 0) return;
+
+    const currentHP = parseInt(character.currentHitPoints) || 0;
+    const maxHP = parseInt(character.hitPointMaximum) || 0;
+
+    // Healing cannot exceed max HP
+    const newHP = Math.min(currentHP + amount, maxHP);
+
+    handleCharacterChange('currentHitPoints', newHP.toString());
+    setHpAdjustAmount(''); // Clear input after applying
+  };
+
+  const handleApplyDamage = () => {
+    const amount = parseInt(hpAdjustAmount) || 0;
+    if (amount <= 0) return;
+
+    let currentHP = parseInt(character.currentHitPoints) || 0;
+    let tempHP = parseInt(character.temporaryHitPoints) || 0;
+
+    // DAMAGE LOGIC: Subtract from temp HP first
+    if (tempHP > 0) {
+      if (tempHP >= amount) {
+        // Temp HP absorbs all damage
+        tempHP -= amount;
+      } else {
+        // Temp HP absorbs some, rest goes to current HP
+        const overflow = amount - tempHP;
+        tempHP = 0;
+        currentHP = Math.max(0, currentHP - overflow);
+      }
+    } else {
+      // No temp HP, damage goes to current HP
+      currentHP = Math.max(0, currentHP - amount);
+    }
+
+    handleCharacterChange('currentHitPoints', currentHP.toString());
+    handleCharacterChange('temporaryHitPoints', tempHP.toString());
+    setHpAdjustAmount(''); // Clear input after applying
   };
 
   const addRoll = (roll: RollResult) => {
@@ -603,14 +683,14 @@ export default function CharacterSheet({ character: initialCharacter, onBack }: 
             {/* Top Right Stats - HP, AC, Initiative */}
             <div className="flex items-center gap-3">
               {/* HP */}
-              <div className="bg-red-50 border-2 border-red-400 rounded-lg px-4 py-2 min-w-32">
-                <div className="flex items-center gap-2 mb-1">
-                  <Heart className="text-red-500" size={16} />
-                  <span className="text-xs font-bold text-red-700 uppercase">Hit Points</span>
-                </div>
-                <div className="flex items-baseline gap-1">
-                  {isEditing ? (
-                    <>
+              <div className="bg-red-50 border-2 border-red-400 rounded-lg px-3 py-2">
+                {isEditing ? (
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2 mb-1">
+                      <Heart className="text-red-500" size={16} />
+                      <span className="text-xs font-bold text-red-700 uppercase">Hit Points</span>
+                    </div>
+                    <div className="flex items-center justify-center gap-2">
                       <input
                         type="text"
                         value={character.currentHitPoints}
@@ -624,15 +704,95 @@ export default function CharacterSheet({ character: initialCharacter, onBack }: 
                         onChange={(e) => handleCharacterChange('hitPointMaximum', e.target.value)}
                         className="w-12 text-lg text-gray-600 bg-white border border-red-300 rounded px-1 text-center"
                       />
-                    </>
-                  ) : (
-                    <>
-                      <span className="text-3xl font-bold text-red-600">{character.currentHitPoints}</span>
-                      <span className="text-gray-400 text-lg">/</span>
-                      <span className="text-lg text-gray-600">{character.hitPointMaximum}</span>
-                    </>
-                  )}
-                </div>
+                    </div>
+                    <div className="flex items-center justify-center gap-1 text-xs">
+                      <Shield className="text-blue-500" size={12} />
+                      <input
+                        type="text"
+                        value={character.temporaryHitPoints}
+                        onChange={(e) => handleCharacterChange('temporaryHitPoints', e.target.value)}
+                        className="w-12 text-xs text-blue-600 bg-white border border-blue-300 rounded px-1 text-center"
+                        placeholder="0"
+                      />
+                      <span className="text-gray-500">temp HP</span>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-3">
+                    {/* Column 1: Heal / Amount / Damage stacked vertically */}
+                    <div className="flex flex-col gap-1">
+                      <button
+                        onClick={handleApplyHealing}
+                        disabled={!hpAdjustAmount || parseInt(hpAdjustAmount) <= 0}
+                        className="px-3 py-1 text-xs bg-green-500 hover:bg-green-600 disabled:bg-gray-300 disabled:cursor-not-allowed text-white rounded transition-colors font-medium uppercase"
+                        title="Apply healing"
+                      >
+                        Heal
+                      </button>
+                      <input
+                        type="number"
+                        value={hpAdjustAmount}
+                        onChange={(e) => setHpAdjustAmount(e.target.value)}
+                        placeholder=""
+                        min="0"
+                        className="w-16 text-xs text-center bg-white border border-red-300 rounded px-1 py-1"
+                      />
+                      <button
+                        onClick={handleApplyDamage}
+                        disabled={!hpAdjustAmount || parseInt(hpAdjustAmount) <= 0}
+                        className="px-3 py-1 text-xs bg-red-500 hover:bg-red-600 disabled:bg-gray-300 disabled:cursor-not-allowed text-white rounded transition-colors font-medium uppercase"
+                        title="Apply damage"
+                      >
+                        Damage
+                      </button>
+                    </div>
+
+                    {/* Column 2: Current / Max + HIT POINTS label */}
+                    <div className="flex-1 text-center">
+                      <div className="flex items-baseline justify-center gap-3">
+                        <div className="text-center">
+                          <div className="text-[10px] uppercase text-gray-400 font-semibold tracking-wide">Current</div>
+                          <span className="text-3xl font-bold text-red-600">{character.currentHitPoints}</span>
+                        </div>
+                        <span className="text-gray-400 text-xl font-light">/</span>
+                        <div className="text-center">
+                          <div className="text-[10px] uppercase text-gray-400 font-semibold tracking-wide">Max</div>
+                          <span className="text-2xl font-bold text-gray-600">{character.hitPointMaximum}</span>
+                        </div>
+                      </div>
+                      <div className="text-xs font-bold text-red-700 uppercase tracking-wide mt-0.5">Hit Points</div>
+                    </div>
+
+                    {/* Column 3: Temp HP (click to edit) */}
+                    <div className="text-center px-2">
+                      <div className="text-[10px] uppercase text-gray-400 font-semibold tracking-wide">Temp</div>
+                      {editingTempHp ? (
+                        <input
+                          type="number"
+                          value={character.temporaryHitPoints}
+                          onChange={(e) => handleCharacterChange('temporaryHitPoints', e.target.value)}
+                          onBlur={() => setEditingTempHp(false)}
+                          onKeyDown={(e) => { if (e.key === 'Enter') setEditingTempHp(false); }}
+                          autoFocus
+                          min="0"
+                          className="w-12 text-lg text-blue-600 font-medium bg-white border border-blue-300 rounded px-1 text-center"
+                        />
+                      ) : (
+                        <div
+                          onClick={() => setEditingTempHp(true)}
+                          className="text-lg text-blue-600 font-medium cursor-pointer hover:bg-blue-100 rounded px-1 transition-colors"
+                          title="Click to set temp HP"
+                        >
+                          {parseInt(character.temporaryHitPoints || '0') > 0 ? (
+                            <>{character.temporaryHitPoints}</>
+                          ) : (
+                            <span className="text-gray-400">--</span>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* AC */}
@@ -910,7 +1070,17 @@ export default function CharacterSheet({ character: initialCharacter, onBack }: 
                 {activeTab === 'actions' && (
                   <div className="space-y-6">
                     <div>
-                      <h3 className="text-lg font-bold text-gray-900 mb-4">Weapons & Attacks</h3>
+                      <div className="flex items-center justify-between mb-4">
+                        <h3 className="text-lg font-bold text-gray-900">Weapons & Attacks</h3>
+                        {isEditing && (
+                          <button
+                            onClick={handleAddAttack}
+                            className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded text-sm font-medium transition-colors"
+                          >
+                            + Add Weapon
+                          </button>
+                        )}
+                      </div>
                       {character.attacks.length > 0 ? (
                         <div className="space-y-3">
                           {character.attacks.map((attack, idx) => (
@@ -927,12 +1097,21 @@ export default function CharacterSheet({ character: initialCharacter, onBack }: 
                                   <span className="font-bold text-gray-900">{attack.name}</span>
                                 )}
                                 {isEditing ? (
-                                  <input
-                                    type="text"
-                                    value={attack.atkBonus}
-                                    onChange={(e) => handleAttackChange(idx, 'atkBonus', e.target.value)}
-                                    className="w-20 text-sm font-medium text-blue-600 bg-white border border-gray-300 rounded px-2 py-1 ml-2"
-                                  />
+                                  <>
+                                    <input
+                                      type="text"
+                                      value={attack.atkBonus}
+                                      onChange={(e) => handleAttackChange(idx, 'atkBonus', e.target.value)}
+                                      className="w-20 text-sm font-medium text-blue-600 bg-white border border-gray-300 rounded px-2 py-1 ml-2"
+                                    />
+                                    <button
+                                      onClick={() => handleDeleteAttack(idx)}
+                                      className="text-red-600 hover:text-red-700 ml-2"
+                                      title="Delete weapon"
+                                    >
+                                      <X size={16} />
+                                    </button>
+                                  </>
                                 ) : (
                                   <div className="flex items-center gap-1 group">
                                     <span className="text-sm font-medium text-blue-600 group-hover:text-blue-700 transition-colors">{attack.atkBonus} to hit</span>
@@ -1029,9 +1208,19 @@ export default function CharacterSheet({ character: initialCharacter, onBack }: 
                       )}
                     </div>
 
-                    {character.cantrips && character.cantrips.length > 0 && (
+                    {(character.cantrips && character.cantrips.length > 0) || isEditing ? (
                       <div>
-                        <h3 className="text-lg font-bold text-gray-900 mb-4">Cantrips</h3>
+                        <div className="flex items-center justify-between mb-4">
+                          <h3 className="text-lg font-bold text-gray-900">Cantrips</h3>
+                          {isEditing && (
+                            <button
+                              onClick={handleAddCantrip}
+                              className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded text-sm font-medium transition-colors"
+                            >
+                              + Add Cantrip
+                            </button>
+                          )}
+                        </div>
                         {isEditing ? (
                           <div className="space-y-3">
                             {character.cantrips.map((cantrip, idx) => (
@@ -1063,10 +1252,7 @@ export default function CharacterSheet({ character: initialCharacter, onBack }: 
                                     </div>
                                   </div>
                                   <button
-                                    onClick={() => {
-                                      const newCantrips = character.cantrips.filter((_, i) => i !== idx);
-                                      handleCharacterChange('cantrips', newCantrips);
-                                    }}
+                                    onClick={() => handleDeleteCantrip(idx)}
                                     className="text-red-600 hover:text-red-700 ml-2"
                                   >
                                     <X size={16} />
@@ -1237,7 +1423,7 @@ export default function CharacterSheet({ character: initialCharacter, onBack }: 
                           </div>
                         )}
                       </div>
-                    )}
+                    ) : null}
                   </div>
                 )}
 
@@ -1246,14 +1432,24 @@ export default function CharacterSheet({ character: initialCharacter, onBack }: 
                   <div className="space-y-4">
                     <div className="flex items-center justify-between">
                       <h3 className="text-lg font-bold text-gray-900">Spells</h3>
-                      <div className="flex gap-4 text-sm">
-                        <div>
-                          <span className="text-gray-600">Spell Save DC: </span>
-                          <span className="font-bold text-gray-900">{character.spellSaveDC}</span>
-                        </div>
-                        <div>
-                          <span className="text-gray-600">Spell Attack: </span>
-                          <span className="font-bold text-gray-900">{character.spellAttackBonus}</span>
+                      <div className="flex items-center gap-4">
+                        {isEditing && (
+                          <button
+                            onClick={handleAddSpell}
+                            className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded text-sm font-medium transition-colors"
+                          >
+                            + Add Spell
+                          </button>
+                        )}
+                        <div className="flex gap-4 text-sm">
+                          <div>
+                            <span className="text-gray-600">Spell Save DC: </span>
+                            <span className="font-bold text-gray-900">{character.spellSaveDC}</span>
+                          </div>
+                          <div>
+                            <span className="text-gray-600">Spell Attack: </span>
+                            <span className="font-bold text-gray-900">{character.spellAttackBonus}</span>
+                          </div>
                         </div>
                       </div>
                     </div>
