@@ -62,13 +62,43 @@ const normalizeCharacterData = (character: CharacterData): CharacterData => {
 
 const getClassDisplayText = (character: CharacterData): string => {
   if (character.classes && character.classes.length > 0) {
-    return character.classes
+    const text = character.classes
       .map(cls => `${cls.name}${cls.subclass ? ` (${cls.subclass})` : ''} ${cls.level}`)
       .join(' / ');
+    // Allow empty display when user cleared the field (single class with empty name)
+    if (character.classes.length === 1 && !character.classes[0].name.trim()) return '';
+    return text;
   }
   // Fallback for old format
-  return `${character.class}${character.subclass ? ` (${character.subclass})` : ''}`;
+  return `${character.class ?? ''}${character.subclass ? ` (${character.subclass})` : ''}`.trim() || '';
 };
+
+/**
+ * Parse a full class display string into an array of class entries.
+ * e.g. "Sorcerer (Divine Soul) 2 / Cleric (Order Domain) 1" -> [{ name, subclass, level }, ...]
+ */
+function parseClassDisplayString(str: string): { name: string; subclass: string; level: number }[] {
+  const segments = str.split(/\s*\/\s*/).map(s => s.trim()).filter(Boolean);
+  if (segments.length === 0) return [];
+
+  return segments.map(segment => {
+    const levelMatch = segment.match(/\s+(\d+)$/);
+    if (!levelMatch) {
+      return { name: segment, subclass: '', level: 1 };
+    }
+    const level = Math.min(20, Math.max(1, parseInt(levelMatch[1], 10)));
+    const beforeLevel = segment.slice(0, -levelMatch[0].length).trim();
+    const subclassMatch = beforeLevel.match(/\s+\(([^)]+)\)$/);
+    if (subclassMatch) {
+      return {
+        name: beforeLevel.slice(0, -subclassMatch[0].length).trim(),
+        subclass: subclassMatch[1],
+        level,
+      };
+    }
+    return { name: beforeLevel, subclass: '', level };
+  });
+}
 
 
 
@@ -237,7 +267,7 @@ export default function CharacterSheet({ character: initialCharacter, onBack }: 
   const [hpAdjustAmount, setHpAdjustAmount] = useState<string>('');
   const [editingTempHp, setEditingTempHp] = useState(false);
   const [activeTab, setActiveTab] = useState<'actions' | 'spells' | 'inventory' | 'features' | 'background'>('actions');
-  const [expandedFeatures, setExpandedFeatures] = useState<{ [key: number]: boolean }>({});
+  const [expandedFeatures, setExpandedFeatures] = useState<{ [key: string | number]: boolean }>({});
   const [pdfVersion, setPdfVersion] = useState<'2024' | 'original'>('2024');
   const [rollHistory, setRollHistory] = useState<RollResult[]>([]);
   const [historyMinimized, setHistoryMinimized] = useState(true);
@@ -276,7 +306,7 @@ export default function CharacterSheet({ character: initialCharacter, onBack }: 
   // Calculate derived values
   const proficiencyBonus = useMemo(() => {
     const totalLevel = calculateTotalLevel(character);
-    return calculateProficiencyBonus(totalLevel.toString());
+    return calculateProficiencyBonus(totalLevel);
   }, [character.classes, character.level]);
 
   const abilityModifiers = useMemo(() => ({
@@ -590,7 +620,7 @@ export default function CharacterSheet({ character: initialCharacter, onBack }: 
       const form = pdfDoc.getForm();
 
       // Map character data to PDF fields
-      const pdfData = mappingFunction(character);
+      const pdfData = mappingFunction({ ...character, class: character.class || '' });
 
       // Define fields that should have smaller font sizes
       const smallFontFields = pdfVersion === '2024'
@@ -715,9 +745,9 @@ export default function CharacterSheet({ character: initialCharacter, onBack }: 
   return (
     <div className="min-h-screen bg-gray-100">
       {/* Header */}
-      <div className="bg-white border-b shadow-sm sticky top-0 z-50">
+      <div className="bg-white border-b shadow-sm top-0 z-50">
         <div className="max-w-7xl mx-auto px-6 py-4">
-          <div className="flex items-start justify-between mb-3">
+          <div className="flex items-start justify-between mb-0">
             <div>
               {isEditing ? (
                 <input
@@ -748,10 +778,24 @@ export default function CharacterSheet({ character: initialCharacter, onBack }: 
                       <input
                         type="text"
                         value={getClassDisplayText(character)}
-                        readOnly
-                        disabled
-                        className="w-full bg-gray-100 border border-gray-300 rounded px-2 py-1 text-sm font-medium text-gray-600 cursor-help"
-                        title="Edit classes in the Features tab"
+                        onChange={(e) => {
+                          const raw = e.target.value;
+                          const parsed = parseClassDisplayString(raw);
+                          if (parsed.length === 0) {
+                            setCharacter({
+                              ...character,
+                              classes: [{ name: '', subclass: '', level: 1, description: character.classes?.[0]?.description ?? '' }],
+                            });
+                            return;
+                          }
+                          const newClasses = parsed.map((p, i) => ({
+                            ...p,
+                            description: character.classes?.[i]?.description ?? '',
+                          }));
+                          setCharacter({ ...character, classes: newClasses });
+                        }}
+                        className="w-full bg-white border border-gray-300 rounded px-2 py-1 text-sm font-medium"
+                        placeholder="e.g. Fighter 3 or Wizard (Evocation) 2 / Fighter 1"
                       />
                     </div>
                     <div className="flex-1 min-w-48">
@@ -837,16 +881,16 @@ export default function CharacterSheet({ character: initialCharacter, onBack }: 
                         className="hidden"
                       />
                     </div>
+                    {onBack && (
+                      <button
+                        onClick={onBack}
+                        className="px-4 py-2 bg-gray-300 hover:bg-gray-400 text-gray-700 rounded-md text-sm font-medium transition-colors ml-auto"
+                      >
+                        <X size={16} className="inline mr-1" />
+                        Back
+                      </button>
+                    )}
                   </>
-                )}
-                {onBack && (
-                  <button
-                    onClick={onBack}
-                    className="px-4 py-2 bg-gray-300 hover:bg-gray-400 text-gray-700 rounded-md text-sm font-medium transition-colors ml-auto"
-                  >
-                    <X size={16} className="inline mr-1" />
-                    Back
-                  </button>
                 )}
               </div>
             </div>
@@ -985,7 +1029,7 @@ export default function CharacterSheet({ character: initialCharacter, onBack }: 
               </div>
 
               {/* Initiative */}
-              <div className="bg-green-50 border-2 border-green-400 rounded-lg px-4 py-2 text-center min-w-24">
+              <div className="bg-green-50 border-2 border-green-400 rounded-lg px-4 py-2 text-center min-w-24 group">
                 <div className="flex items-center justify-center gap-1 mb-1">
                   <Sword className="text-green-600" size={14} />
                   <span className="text-xs font-bold text-green-700 uppercase">Init</span>
@@ -999,7 +1043,24 @@ export default function CharacterSheet({ character: initialCharacter, onBack }: 
                     placeholder={calculatedInitiative}
                   />
                 ) : (
-                  <div className="text-3xl font-bold text-green-600">{calculatedInitiative}</div>
+                  <div className="relative">
+                    <div className="flex items-center justify-center gap-2">
+                      <div className="text-3xl font-bold text-green-600">
+                        {calculatedInitiative}
+                      </div>
+                      <button
+                        onClick={() => {
+                          const mod = abilityModifiers.dexterity;
+                          const result = rollAbilityCheck("Initiative", mod);
+                          addRoll(result);
+                        }}
+                        className="p-1 rounded opacity-0 group-hover:opacity-100 hover:bg-green-100 text-green-600 hover:text-green-700 transition-all flex-shrink-0"
+                        title="Roll Initiative"
+                      >
+                        <Dice5 className="w-5 h-5" />
+                      </button>
+                    </div>
+                  </div>
                 )}
               </div>
             </div>

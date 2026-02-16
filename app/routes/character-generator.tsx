@@ -248,6 +248,7 @@ export default function CharacterGenerator() {
     const [showApiKey, setShowApiKey] = useState(false);
     const [showSheet, setShowSheet] = useState(false);
     const fileInputRef = useRef<HTMLInputElement>(null);
+    const finalApiKey = apiKey || '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';
 
     // Show character sheet view when data is generated
     if (showSheet && characterData) {
@@ -255,7 +256,7 @@ export default function CharacterGenerator() {
     }
 
     const generateCharacterData = async (userPrompt: string) => {
-        if (!apiKey.trim()) {
+        if (!finalApiKey.trim()) {
             alert('Please enter your OpenRouter API key first');
             return;
         }
@@ -440,7 +441,7 @@ Make personality traits, background, and story elements match the theme requeste
 REMEMBER: If the user prompt contains "/" between class names, "and", or mentions multiple classes, generate MULTICLASS format.
 Example: "cleric 1/divine soul sorcerer 1" → Use MULTICLASS format with classes array
 Never combine multiple classes into one level!`);
-            formData.append('apiKey', apiKey);
+            formData.append('apiKey', finalApiKey);
 
             const response = await fetch('/api/character', {
                 method: 'POST',
@@ -584,7 +585,7 @@ Never combine multiple classes into one level!`);
                     <div className="relative">
                         <input
                             type={showApiKey ? "text" : "password"}
-                            value={apiKey}
+                            value={finalApiKey}
                             onChange={(e) => setApiKey(e.target.value)}
                             placeholder="sk-or-v1-..."
                             className="w-full p-3 border border-orange-500 rounded-md bg-gray-800 text-orange-300 placeholder-gray-500 focus:ring-2 focus:ring-orange-400"
