@@ -261,7 +261,18 @@ export function mapCharacterToPDF(character: CharacterData): CharacterSheetData 
   // Basic Information
   data.CharacterName = truncate(character.characterName, 255);
   data.PlayerName = truncate(character.playerName, 255);
-  data.ClassLevel = truncate(`${character.class} ${character.level}`, 255);
+
+  // Handle both multiclass and single-class format for ClassLevel
+  let classLevelDisplay = '';
+  if (character.classes && Array.isArray(character.classes) && character.classes.length > 0) {
+    const totalLevel = character.classes.reduce((sum, c) => sum + c.level, 0);
+    classLevelDisplay = character.classes
+      .map(c => `${c.name}${c.subclass ? ` (${c.subclass})` : ''} ${c.level}`)
+      .join(' / ') + ` • Level ${totalLevel}`;
+  } else {
+    classLevelDisplay = `${character.class}${character.subclass ? ` (${character.subclass})` : ''} ${character.level || ''}`;
+  }
+  data.ClassLevel = truncate(classLevelDisplay, 255);
   data.Background = truncate(character.background, 255);
   data['Race '] = truncate(character.race, 255); // Note: trailing space in PDF field name
   data.Alignment = truncate(character.alignment, 255);
@@ -497,11 +508,27 @@ export function mapCharacterToPDF2024(character: CharacterData): CharacterSheetD
 
   // Basic Information
   data.Name = truncate(character.characterName, 255);
-  data.Class = truncate(character.class, 50);
-  data.Level = truncate(character.level, 3);
+
+  // Handle both multiclass and single-class format
+  if (character.classes && Array.isArray(character.classes) && character.classes.length > 0) {
+    const totalLevel = character.classes.reduce((sum, c) => sum + c.level, 0);
+    data.Class = truncate(character.classes.map(c => c.name).join(' / '), 50);
+    data.Level = truncate(totalLevel.toString(), 3);
+    data.Subclass = truncate(
+      character.classes
+        .filter(c => c.subclass)
+        .map(c => c.subclass)
+        .join(' / '),
+      100
+    );
+  } else {
+    data.Class = truncate(character.class || '', 50);
+    data.Level = truncate(character.level || '', 3);
+    data.Subclass = truncate(character.subclass || '', 100);
+  }
+
   data.Background = truncate(character.background, 100);
   data.Species = truncate(character.race, 100);
-  data.Subclass = truncate(character.subclass, 100);
   data.Alignment = truncate(character.alignment, 50);
   data['XP Points'] = truncate(character.experiencePoints, 100);
 
