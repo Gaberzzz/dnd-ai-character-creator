@@ -1,92 +1,5 @@
 // app/utils/pdfFieldMapping.ts
-interface CharacterData {
-  characterName: string;
-  playerName: string;
-  race: string;
-  raceDescription: string;
-  class: string;
-  classDescription: string;
-  level: string;
-  subclass: string;
-  subclassDescription: string;
-  background: string;
-  alignment: string;
-  experiencePoints: string;
-  strength: string;
-  strengthMod: string;
-  dexterity: string;
-  dexterityMod: string;
-  constitution: string;
-  constitutionMod: string;
-  intelligence: string;
-  intelligenceMod: string;
-  wisdom: string;
-  wisdomMod: string;
-  charisma: string;
-  charismaMod: string;
-  armorClass: string;
-  initiative: string;
-  speed: string;
-  hitPointMaximum: string;
-  currentHitPoints: string;
-  temporaryHitPoints: string;
-  hitDice: string;
-  proficiencyBonus: string;
-  personalityTraits: string;
-  ideals: string;
-  bonds: string;
-  flaws: string;
-  features: Array<{
-    name: string;
-    description: string;
-    category?: string;
-  }>;
-  featuresAndTraits: string;
-  equipment: string;
-  attacks: Array<{
-    name: string;
-    atkBonus: string;
-    damage: string;
-  }>;
-  skills: { [key: string]: { proficient: boolean; value: string } };
-  savingThrows: { [key: string]: { proficient: boolean; value: string } };
-  cantrips: Array<{
-    name: string;
-    level: string;
-    school: string;
-    castingTime: string;
-    range: string;
-    duration: string;
-    description: string;
-    damage?: string;
-    saveDC?: string;
-    concentration?: boolean;
-    ritual?: boolean;
-    components?: string;
-  }>;
-  spells: Array<{
-    name: string;
-    level: string;
-    school: string;
-    castingTime: string;
-    range: string;
-    duration: string;
-    description: string;
-    damage?: string;
-    saveDC?: string;
-    concentration?: boolean;
-    ritual?: boolean;
-    components?: string;
-  }>;
-  spellcastingAbility: string;
-  spellSaveDC: string;
-  spellAttackBonus: string;
-  cp: string;
-  sp: string;
-  ep: string;
-  gp: string;
-  pp: string;
-}
+import type { CharacterData } from '~/types/character';
 
 interface CharacterSheetData {
   [key: string]: string | boolean | undefined;
@@ -402,7 +315,7 @@ export function mapCharacterToPDF(character: CharacterData): CharacterSheetData 
   );
 
   // Spellcasting Info
-  data['Spellcasting Class 2'] = truncate(character.class, 50);
+  data['Spellcasting Class 2'] = truncate(character.class ?? '', 50);
   data['SpellcastingAbility 2'] = truncate(character.spellcastingAbility, 10);
   data['SpellSaveDC  2'] = truncate(character.spellSaveDC, 3);
   data['SpellAtkBonus 2'] = truncate(character.spellAttackBonus, 10);
@@ -639,7 +552,7 @@ export function mapCharacterToPDF2024(character: CharacterData): CharacterSheetD
   data['SPELLCASTING ABILITY'] = truncate(character.spellcastingAbility, 10);
   data['SPELL SAVE DC'] = truncate(character.spellSaveDC, 3);
   data['SPELL ATTACK BONUS'] = truncate(character.spellAttackBonus, 10);
-  data['SPELLCASTING MOD'] = truncate(character.class, 50);
+  data['SPELLCASTING MOD'] = truncate(character.class ?? '', 50);
 
   // Currency
   data.CP = truncate(character.cp, 10);
@@ -649,7 +562,7 @@ export function mapCharacterToPDF2024(character: CharacterData): CharacterSheetD
   data.PP = truncate(character.pp, 10);
 
   // Skills (proficiencies text)
-  data['WEAPON PROF'] = truncate(character.class, 100);
+  data['WEAPON PROF'] = truncate(character.class ?? '', 100);
   data['TOOL PROF'] = truncate(character.background, 100);
   data.LANGUAGES = truncate(character.race, 100);
 

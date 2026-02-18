@@ -283,6 +283,40 @@ export async function getClassFeatures(className: string | undefined): Promise<C
   }
 }
 
+export interface SubclassInfo {
+  index: string;
+  name: string;
+}
+
+/**
+ * Get subclasses for a D&D 5e class by class name.
+ */
+export async function getSubclasses(className: string): Promise<SubclassInfo[]> {
+  if (!className) return [];
+
+  try {
+    const classResponse = await fetch(`${DND5E_API_BASE}/classes`);
+    if (!classResponse.ok) return [];
+
+    const classData = await classResponse.json();
+    const lowerClassName = className.toLowerCase().trim();
+    const classResult = classData.results?.find(
+      (c: { name: string; index: string }) => c.name.toLowerCase() === lowerClassName
+    );
+    if (!classResult) return [];
+
+    const detailResponse = await fetch(`${DND5E_API_BASE}/classes/${classResult.index}`);
+    if (!detailResponse.ok) return [];
+
+    const detail = await detailResponse.json();
+    const subclasses = detail.subclasses || [];
+    return subclasses.map((s: { index: string; name: string }) => ({ index: s.index, name: s.name }));
+  } catch (error) {
+    console.error(`❌ Error fetching subclasses for ${className}:`, error);
+    return [];
+  }
+}
+
 /**
  * Search for equipment/items by name
  */

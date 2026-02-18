@@ -1,0 +1,15 @@
+{
+  "name": "DnD Character Creator Rolls",
+  "author": "DnD Character Creator",
+  "version": "1.0.0",
+  "manifest_version": 1,
+  "description": "Broadcasts dice rolls from the DnD AI Character Creator into Owlbear Rodeo as notifications visible to all players.",
+  "icon": "/icon.svg",
+  "action": {
+    "title": "Roll Bridge",
+    "icon": "/icon.svg",
+    "popover": "/",
+    "width": 320,
+    "height": 440
+  }
+}

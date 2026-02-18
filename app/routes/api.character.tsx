@@ -1,9 +1,12 @@
 // app/routes/api.character.tsx
 import type { ActionFunction } from "react-router";
+import { appendFileSync, mkdirSync } from "fs";
+import { join } from "path";
 import {
   searchSpells,
   searchFeats,
   getClassFeatures,
+  getSubclasses,
   searchEquipment,
   validateSpell,
   validateFeat,
@@ -91,6 +94,23 @@ const tools = [
       },
     },
   },
+  {
+    type: "function",
+    function: {
+      name: "get_subclasses",
+      description: "Get official D&D 5e subclass names for a class. Use when building a clarification for subclass choice (e.g. at Rogue 3).",
+      parameters: {
+        type: "object",
+        properties: {
+          className: {
+            type: "string",
+            description: "The name of the class (e.g., 'Rogue', 'Fighter', 'Wizard')",
+          },
+        },
+        required: ["className"],
+      },
+    },
+  },
 ];
 
 // Execute tool calls and return results
@@ -129,6 +149,11 @@ async function executeTool(
         if (!args.query) return JSON.stringify({ error: "Missing required parameter: query" });
         const equipment = await searchEquipment(args.query, apiKey);
         return JSON.stringify(equipment.length > 0 ? equipment : { error: "No equipment found" });
+
+      case "get_subclasses":
+        if (!args.className) return JSON.stringify({ error: "Missing required parameter: className" });
+        const subclasses = await getSubclasses(args.className);
+        return JSON.stringify(subclasses.length > 0 ? subclasses : { error: "No subclasses found" });
 
       default:
         return JSON.stringify({ error: `Unknown tool: ${toolName}` });
@@ -197,14 +222,41 @@ export const action: ActionFunction = async ({ request }) => {
   const formData = await request.formData();
   const prompt = formData.get("prompt");
   const apiKey = formData.get("apiKey");
+  const existingCharacterRaw = formData.get("existingCharacter");
+  const messagesRaw = formData.get("messages");
+
+  // #region agent log
+  fetch('http://127.0.0.1:7242/ingest/50b3ff2c-f993-4284-93b3-0578016c45d3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'api.character.tsx:formData',message:'level-up request params',data:{hasExistingChar:!!existingCharacterRaw,typeOfExistingChar:typeof existingCharacterRaw,existingCharLength:typeof existingCharacterRaw==='string'?existingCharacterRaw.length:0,hasMessages:!!messagesRaw},timestamp:Date.now(),hypothesisId:'H1'})}).catch(()=>{});
+  // #endregion
+
+  let existingCharacter: any = null;
+  try {
+    existingCharacter = existingCharacterRaw
+      ? (typeof existingCharacterRaw === "string" ? JSON.parse(existingCharacterRaw) : existingCharacterRaw)
+      : null;
+  } catch (parseErr) {
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/50b3ff2c-f993-4284-93b3-0578016c45d3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'api.character.tsx:parseExistingChar',message:'existingCharacter JSON.parse threw',data:{error:String(parseErr)},timestamp:Date.now(),hypothesisId:'H1'})}).catch(()=>{});
+    // #endregion
+    throw parseErr;
+  }
+  let conversationMessages: Array<{ role: string; content: string }> | null = null;
+  if (messagesRaw && typeof messagesRaw === "string") {
+    try {
+      const parsed = JSON.parse(messagesRaw);
+      if (Array.isArray(parsed) && parsed.length > 0) conversationMessages = parsed;
+    } catch (_) {}
+  }
 
   console.log("📝 Received Form Data:", {
     prompt,
-    apiKey: apiKey ? "(provided)" : "(missing)"
+    apiKey: apiKey ? "(provided)" : "(missing)",
+    levelUp: !!existingCharacter,
+    conversationTurns: conversationMessages?.length ?? 0,
   });
 
   try {
-    const systemPrompt = `You are an expert D&D 5e character generator. You create detailed, accurate characters that follow official D&D 5e rules.
+    const baseSystemPrompt = `You are an expert D&D 5e character generator. You create detailed, accurate characters that follow official D&D 5e rules.
 
 ⚠️ CRITICAL: READ THE USER REQUEST CAREFULLY FOR CLASS SPECIFICATIONS ⚠️
 
@@ -326,10 +378,44 @@ FINAL REMINDER:
 - Otherwise → SINGLE CLASS FORMAT
 ═══════════════════════════════════════════════════════════════`;
 
+    const levelUpSystemBlock = existingCharacter
+      ? `
 
-    let messages: Array<any> = [
-      { role: "user", content: prompt as string }
-    ];
+═══════════════════════════════════════════════════════════════
+LEVEL-UP MODE (existing character provided):
+═══════════════════════════════════════════════════════════════
+You are applying a level-up to an existing character. The user's message describes what to add (e.g. "level up 1 level of rogue").
+- Use the provided existing character and apply ONLY the requested change(s). Return the FULL updated character JSON with the same schema.
+- If you need a PLAYER CHOICE before you can complete the update, do NOT return character JSON. Return ONLY a single JSON object:
+  - For multiple choice (e.g. subclass): { "type": "clarification", "question": "string", "options": ["option1", "option2", ...], "context": "optional short description" }
+  - For free text (e.g. feat or spell list): { "type": "clarification", "question": "string", "options": [], "context": "optional" }
+- When the level-up grants a subclass (e.g. Rogue 3): use get_subclasses(className) to get official options, then return a clarification with question and options (and optional context) if the user has not already chosen.
+- When the level-up grants an ASI or feat (e.g. level 4): if the user did not specify, return a clarification; use search_feats to suggest feat options or list common ASI choices.
+- When the level-up grants new spells known/prepared: if the user did not specify, return a clarification; use search_spells with class and level to suggest options, or use empty options and ask for comma-separated spell names.
+After the user answers a clarification, continue from the conversation and apply their choice, then return the full updated character JSON.
+═══════════════════════════════════════════════════════════════`
+      : "";
+
+    const systemPrompt = baseSystemPrompt + levelUpSystemBlock;
+
+    let messages: Array<any>;
+    if (conversationMessages && conversationMessages.length > 0) {
+      messages = conversationMessages.map((m) => ({ role: m.role, content: m.content }));
+    } else if (existingCharacter) {
+      messages = [
+        {
+          role: "user",
+          content: `Existing character (apply level-up to this):\n${JSON.stringify(existingCharacter)}\n\nUser request: ${prompt}`,
+        },
+      ];
+    } else {
+      messages = [{ role: "user", content: prompt as string }];
+    }
+
+    // #region agent log
+    const firstContentLen = messages[0]?.content?.length ?? 0;
+    fetch('http://127.0.0.1:7242/ingest/50b3ff2c-f993-4284-93b3-0578016c45d3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'api.character.tsx:beforeOpenRouter',message:'messages built',data:{messageCount:messages.length,firstMessageLength:firstContentLen},timestamp:Date.now(),hypothesisId:'H2'})}).catch(()=>{});
+    // #endregion
 
     let assistantMessage: any = null;
     let toolCallCount = 0;
@@ -365,12 +451,24 @@ FINAL REMINDER:
 
       if (!response.ok) {
         console.error("❌ OpenRouter API Error Response:", rawText);
+        if (response.status === 401 || response.status === 403) {
+          return Response.json(
+            { error: "Invalid or expired API key", details: "Your OpenRouter API key was rejected. Please check your key at openrouter.ai/app/keys and try again." },
+            { status: 401 }
+          );
+        }
         throw new Error(`OpenRouter API failed: ${response.status} - ${rawText.substring(0, 200)}`);
       }
 
       const data = JSON.parse(rawText);
 
       console.log("✅ Parsed Response JSON:", data);
+
+      // #region agent log
+      const hasChoices = !!data.choices?.length;
+      const hasMessage = !!(data.choices?.[0]?.message);
+      fetch('http://127.0.0.1:7242/ingest/50b3ff2c-f993-4284-93b3-0578016c45d3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'api.character.tsx:openRouterResponse',message:'openRouter body parsed',data:{status:response.status,hasChoices,hasMessage,rawLength:rawText?.length},timestamp:Date.now(),hypothesisId:'H3'})}).catch(()=>{});
+      // #endregion
 
       assistantMessage = data.choices[0].message;
       
@@ -417,9 +515,36 @@ FINAL REMINDER:
       if (jsonMatch) {
         jsonContent = jsonMatch[1];
         console.log("📋 Extracted JSON from code block");
+      } else {
+        // No code block: take the first { ... } (outer object)
+        const firstBrace = jsonContent.indexOf("{");
+        if (firstBrace !== -1) {
+          let depth = 0;
+          let end = firstBrace;
+          for (let i = firstBrace; i < jsonContent.length; i++) {
+            const c = jsonContent[i];
+            if (c === "{") depth++;
+            else if (c === "}") { depth--; if (depth === 0) { end = i + 1; break; } }
+          }
+          if (depth === 0) jsonContent = jsonContent.slice(firstBrace, end);
+        }
       }
 
+      jsonContent = jsonContent.trim();
+      // Fix common invalid JSON from LLMs: trailing commas before } or ]
+      jsonContent = jsonContent.replace(/,(\s*[}\]])/g, "$1");
+
       characterData = JSON.parse(jsonContent);
+
+      // Level-up clarification: return as-is for frontend to display
+      if (characterData && characterData.type === "clarification") {
+        console.log("📋 Level-up clarification returned");
+        return Response.json({
+          choices: [{ message: { content: JSON.stringify(characterData) } }],
+          toolCallCount,
+        });
+      }
+
       console.log("✅ Parsed character data successfully");
       console.log("📊 Character format:", characterData.classes ? "MULTICLASS" : "SINGLE-CLASS");
       console.log("📊 Classes:", characterData.classes || `${characterData.class} (Level ${characterData.level})`);
@@ -455,7 +580,20 @@ FINAL REMINDER:
 
   } catch (error) {
     console.error("❌ API Error:", error);
-
+    // #region agent log
+    try {
+      const cwd = process.cwd();
+      const dir = join(cwd, ".cursor");
+      mkdirSync(dir, { recursive: true });
+      const logPath = join(dir, "debug.log");
+      const payload = JSON.stringify({ location: "api.character.tsx:catch500", message: "API threw before 500", data: { error: String(error), name: (error as Error)?.name, stack: (error as Error)?.stack }, timestamp: Date.now(), hypothesisId: "H5" }) + "\n";
+      appendFileSync(logPath, payload);
+      console.error("DEBUG_LOG_WRITTEN", logPath, String(error));
+    } catch (logErr) {
+      console.error("DEBUG_LOG_FAILED", logErr);
+    }
+    fetch('http://127.0.0.1:7242/ingest/50b3ff2c-f993-4284-93b3-0578016c45d3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'api.character.tsx:catch500',message:'API threw before 500',data:{error:String(error),name:(error as Error)?.name},timestamp:Date.now(),hypothesisId:'H5'})}).catch(()=>{});
+    // #endregion
     return Response.json(
       { error: "Failed to generate character", details: String(error) },
       { status: 500 }

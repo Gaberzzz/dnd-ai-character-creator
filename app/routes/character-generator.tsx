@@ -1,571 +1,38 @@
-import { useState, useEffect, useRef } from 'react';
-import { Wand2, Eye, EyeOff, Upload } from 'lucide-react';
-import { useNavigate } from 'react-router';
 import CharacterSheet from './character-sheet';
-import { getSpellAttackType, hasVariableDamage } from '../utils/spellAttackConfig';
-
-// Remove the server-side import and declare type
-type PDFLibType = typeof import('pdf-lib');
-
-// Field mapping configurations remain the same (kept for potential future PDF export feature)
-const pdfFieldMap: Record<string, keyof CharacterData> = {
-    CharacterName: "characterName",
-    PlayerName: "playerName",
-    "Race ": "race",
-    ClassLevel: "class",
-    Background: "background",
-    Alignment: "alignment",
-    XP: "experiencePoints",
-    STR: "strength",
-    DEX: "dexterity",
-    CON: "constitution",
-    INT: "intelligence",
-    WIS: "wisdom",
-    CHA: "charisma",
-    AC: "armorClass",
-    Initiative: "initiative",
-    Speed: "speed",
-    HPMax: "hitPointMaximum",
-    HPCurrent: "currentHitPoints",
-    HPTemp: "temporaryHitPoints",
-    HDTotal: "hitDice",
-    ProfBonus: "proficiencyBonus",
-    "PersonalityTraits ": "personalityTraits",
-    Ideals: "ideals",
-    Bonds: "bonds",
-    Flaws: "flaws",
-    "Features and Traits": "featuresAndTraits",
-    Equipment: "equipment",
-    CP: "cp",
-    SP: "sp",
-    EP: "ep",
-    GP: "gp",
-    PP: "pp",
-};
-
-const savingThrowTextFields: Record<string, string> = {
-    strength: "ST Strength",
-    dexterity: "ST Dexterity",
-    constitution: "ST Constitution",
-    intelligence: "ST Intelligence",
-    wisdom: "ST Wisdom",
-    charisma: "ST Charisma",
-};
-
-const savingThrowBoxes: Record<string, string> = {
-    strength: "Check Box 11",
-    dexterity: "Check Box 12",
-    constitution: "Check Box 14",
-    intelligence: "Check Box 15",
-    wisdom: "Check Box 16",
-    charisma: "Check Box 17",
-};
-
-const skillTextFields: Record<string, string> = {
-    athletics: "Athletics",
-    acrobatics: "Acrobatics", 
-    sleightOfHand: "SleightofHand",
-    "stealth ": "Stealth",
-    arcana: "Arcana",
-    "history ": "History",
-    "investigation ": "Investigation",
-    nature: "Nature",
-    religion: "Religion",
-    animalHandling: "Animal",
-    insight: "Insight", 
-    medicine: "Medicine",
-    "perception ": "Perception",
-    survival: "Survival",
-    "deception ": "Deception",
-    intimidation: "Intimidation",
-    performance: "Performance", 
-    persuasion: "Persuasion"
-};
-
-const skillProficiencyBoxes: Record<keyof CharacterData["skills"], string> = {
-    acrobatics: "Check Box 22",
-    animalHandling: "Check Box 23",
-    arcana: "Check Box 24",
-    athletics: "Check Box 25",
-    deception: "Check Box 26",
-    history: "Check Box 27",
-    insight: "Check Box 28",
-    intimidation: "Check Box 29",
-    investigation: "Check Box 30",
-    medicine: "Check Box 31",
-    nature: "Check Box 32",
-    perception: "Check Box 33",
-    performance: "Check Box 34",
-    persuasion: "Check Box 35",
-    religion: "Check Box 36",
-    sleightOfHand: "Check Box 37",
-    stealth: "Check Box 38",
-    survival: "Check Box 39",
-};
-
-interface Feature {
-  name: string;
-  description: string;
-  category?: string;
-}
-
-interface CharacterClass {
-    name: string;
-    subclass: string;
-    level: number;
-    description?: string;
-}
-
-interface CharacterData {
-    characterName: string;
-    playerName: string;
-    race: string;
-    raceDescription: string;
-    classes?: CharacterClass[];
-    class?: string;
-    classDescription?: string;
-    level?: string;
-    subclass?: string;
-    subclassDescription?: string;
-    background: string;
-    alignment: string;
-    experiencePoints: string;
-    strength: string;
-    strengthMod: string;
-    dexterity: string;
-    dexterityMod: string;
-    constitution: string;
-    constitutionMod: string;
-    intelligence: string;
-    intelligenceMod: string;
-    wisdom: string;
-    wisdomMod: string;
-    charisma: string;
-    charismaMod: string;
-    armorClass: string;
-    initiative: string;
-    speed: string;
-    hitPointMaximum: string;
-    currentHitPoints: string;
-    temporaryHitPoints: string;
-    hitDice: string;
-    proficiencyBonus: string;
-    personalityTraits: string;
-    ideals: string;
-    bonds: string;
-    flaws: string;
-    features: Feature[];
-    featuresAndTraits: string;
-    equipment: string;
-    attacks: Array<{
-        name: string;
-        atkBonus: string;
-        damage: string;
-    }>;
-    skills: { [key: string]: { proficient: boolean, value: string } };
-    savingThrows: { [key: string]: { proficient: boolean, value: string } };
-    cantrips: Array<{
-        name: string;
-        level: string;
-        school: string;
-        castingTime: string;
-        range: string;
-        duration: string;
-        description: string;
-        concentration?: boolean;
-        ritual?: boolean;
-        components?: string;
-        damage?: string;
-        saveDC?: string;
-        attackType?: 'attack' | 'save' | 'auto-hit' | 'none';
-        altDamage?: string;
-    }>;
-    spells: Array<{
-        name: string;
-        level: string;
-        school: string;
-        castingTime: string;
-        range: string;
-        duration: string;
-        description: string;
-        concentration?: boolean;
-        ritual?: boolean;
-        components?: string;
-        damage?: string;
-        saveDC?: string;
-        attackType?: 'attack' | 'save' | 'auto-hit' | 'none';
-        altDamage?: string;
-    }>;
-    spellcastingAbility: string;
-    spellSaveDC: string;
-    spellAttackBonus: string;
-    cp: string;
-    sp: string;
-    ep: string;
-    gp: string;
-    pp: string;
-}
-
-const migrateCharacterData = (data: any): CharacterData => {
-    // If data already has classes array with proper structure, return as is
-    if (data.classes && Array.isArray(data.classes) && data.classes.length > 0) {
-        return data;
-    }
-
-    // If data has old single-class format, convert to new format
-    if (data.class && !data.classes) {
-        const level = parseInt(data.level) || 1;
-        return {
-            ...data,
-            classes: [{
-                name: data.class,
-                subclass: data.subclass || '',
-                level: level,
-                description: data.classDescription,
-            }],
-            // Keep old fields for compatibility
-            level: data.level,
-            class: data.class,
-            subclass: data.subclass,
-            classDescription: data.classDescription,
-        };
-    }
-
-    // If no classes and no single class, create default
-    if (!data.classes) {
-        data.classes = [];
-    }
-
-    return data;
-};
+import { useCharacterGenerator } from '~/hooks/useCharacterGenerator';
+import ApiKeyInput from '~/components/ApiKeyInput';
+import LevelUpIndicator from '~/components/LevelUpIndicator';
+import ClarificationPanel from '~/components/ClarificationPanel';
+import PromptInput from '~/components/PromptInput';
 
 export default function CharacterGenerator() {
-    const navigate = useNavigate();
-    const [prompt, setPrompt] = useState('');
-    const [characterData, setCharacterData] = useState<CharacterData | null>(null);
-    const [loading, setLoading] = useState(false);
-    const [apiKey, setApiKey] = useState('');
-    const [showApiKey, setShowApiKey] = useState(false);
-    const [showSheet, setShowSheet] = useState(false);
-    const fileInputRef = useRef<HTMLInputElement>(null);
-    const finalApiKey = apiKey || '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';
+    const {
+        prompt, setPrompt,
+        characterData,
+        loading,
+        showApiKey, setShowApiKey,
+        showSheet, setShowSheet,
+        fileInputRef,
+        finalApiKey, setApiKey,
+        levelUpBaseCharacter,
+        clarification,
+        clarificationText, setClarificationText,
+        generateCharacterData,
+        importFromJSON,
+        handleCancelLevelUp,
+        startLevelUp,
+    } = useCharacterGenerator();
 
     // Show character sheet view when data is generated
     if (showSheet && characterData) {
-        return <CharacterSheet character={characterData} onBack={() => setShowSheet(false)} />;
+        return (
+            <CharacterSheet
+                character={characterData}
+                onBack={() => setShowSheet(false)}
+                onLevelUp={() => startLevelUp(characterData)}
+            />
+        );
     }
-
-    const generateCharacterData = async (userPrompt: string) => {
-        if (!finalApiKey.trim()) {
-            alert('Please enter your OpenRouter API key first');
-            return;
-        }
-
-        setLoading(true);
-
-        try {
-            // Use your backend API route instead of calling OpenRouter directly
-            const formData = new FormData();
-            formData.append('prompt', `Generate a complete D&D 5e character based on this prompt: "${userPrompt}"
-
-Please return ONLY a JSON object with these exact field names and appropriate values:
-
-⚠️ IMPORTANT: If the user request contains "/" or mentions multiple classes, use the MULTICLASS format below!
-If it's a single class, use the SINGLE CLASS format.
-
-SINGLE CLASS FORMAT (for single-class characters):
-{
-  "characterName": "string",
-  "playerName": "",
-  "race": "string",
-  "raceDescription": "string (2-3 sentences describing the racial traits, culture, and abilities)",
-  "class": "string (e.g., 'Fighter')",
-  "classDescription": "string (2-3 sentences describing the class role, abilities, and playstyle)",
-  "level": "string (e.g., '3')",
-  "subclass": "string (e.g., 'Eldritch Knight' - the subclass/archetype; use empty string if no subclass)",
-  "subclassDescription": "string (2-3 sentences describing the subclass features; empty string if no subclass)",
-
-MULTICLASS FORMAT (use if user specifies multiple classes with "/" or "and"):
-{
-  "characterName": "string",
-  "playerName": "",
-  "race": "string",
-  "raceDescription": "string (2-3 sentences describing the racial traits, culture, and abilities)",
-  "classes": [
-    {
-      "name": "string (e.g., 'Cleric')",
-      "subclass": "string (e.g., 'Divine Soul')",
-      "level": number (NOT a string! e.g., 1 or 2)
-    },
-    {
-      "name": "string (e.g., 'Sorcerer')",
-      "subclass": "string",
-      "level": number
-    }
-  ],
-  "totalLevel": number (sum of all class levels),
-  "class": "", (leave empty for multiclass)
-  "subclass": "", (leave empty for multiclass)
-  "level": "", (leave empty for multiclass)
-  "classDescription": "", (leave empty for multiclass)
-  "subclassDescription": "", (leave empty for multiclass)
-  "background": "string",
-  "alignment": "string",
-  "experiencePoints": "string",
-  "strength": "string (ability score 8-20)",
-  "strengthMod": "string (e.g., '+1')",
-  "dexterity": "string (ability score 8-20)",
-  "dexterityMod": "string (e.g., '+2')",
-  "constitution": "string (ability score 8-20)",
-  "constitutionMod": "string (e.g., '+2')",
-  "intelligence": "string (ability score 8-20)",
-  "intelligenceMod": "string (e.g., '+1')",
-  "wisdom": "string (ability score 8-20)",
-  "wisdomMod": "string (e.g., '+2')", 
-  "charisma": "string (ability score 8-20)",
-  "charismaMod": "string (e.g., '+0')",
-  "armorClass": "string",
-  "initiative": "string (with + or -)",
-  "speed": "string (e.g., '30 ft')",
-  "hitPointMaximum": "string",
-  "currentHitPoints": "string",
-  "temporaryHitPoints": "",
-  "hitDice": "string (e.g., '3d10')",
-  "proficiencyBonus": "string (with +)",
-  "personalityTraits": "string",
-  "ideals": "string", 
-  "bonds": "string",
-  "flaws": "string",
-  "features": [
-    {
-      "name": "string (e.g., 'Second Wind')",
-      "description": "string (detailed description of what the feature does and how it works)",
-      "category": "string (e.g., 'class', 'racial', 'background', 'feat')"
-    }
-  ],
-  "featuresAndTraits": "string (for backward compatibility - can be empty)",
-  "equipment": "string (comma-separated list)",
-  "attacks": [
-    {
-      "name": "string",
-      "atkBonus": "string (with + or -)",
-      "damage": "string (e.g., '1d8 + 2 piercing')" 
-    }
-  ],
-  "skills": {
-    "athletics": { "proficient": false, "value": "+0" },
-    "acrobatics": { "proficient": false, "value": "+0" },
-    "sleightOfHand": { "proficient": false, "value": "+0" },
-    "stealth": { "proficient": false, "value": "+0" },
-    "arcana": { "proficient": false, "value": "+0" },
-    "history": { "proficient": false, "value": "+0" },
-    "investigation": { "proficient": false, "value": "+0" },
-    "nature": { "proficient": false, "value": "+0" },
-    "religion": { "proficient": false, "value": "+0" },
-    "animalHandling": { "proficient": false, "value": "+0" },
-    "insight": { "proficient": false, "value": "+0" },
-    "medicine": { "proficient": false, "value": "+0" },
-    "perception": { "proficient": false, "value": "+0" },
-    "survival": { "proficient": false, "value": "+0" },
-    "deception ": { "proficient": false, "value": "+0" },
-    "intimidation": { "proficient": false, "value": "+0" },
-    "performance": { "proficient": false, "value": "+0" },
-    "persuasion": { "proficient": false, "value": "+0" }
-  },
-NOTE: For skills, calculate the value as:
-  - athletics/acrobatics/sleightOfHand/stealth use DEX or STR (athletics uses STR, others use DEX)
-  - arcana/history/investigation/nature/religion use INT
-  - animalHandling/insight/medicine/perception/survival use WIS
-  - deception/intimidation/performance/persuasion use CHA
-  - value = ability_modifier + (proficiency_bonus if proficient in skill)
-  - Example: If STR is 14 (mod +2) and character is proficient in athletics with +2 prof bonus, athletics value should be "+4"
-  - If not proficient: just use the ability modifier (e.g., DEX 16 = mod +3, acrobatics = "+3" if not proficient, "+5" if proficient with +2 bonus)
-  "savingThrows": {
-    "strength": { "proficient": false, "value": "+0" },
-    "dexterity": { "proficient": false, "value": "+0" },
-    "constitution": { "proficient": false, "value": "+0" },
-    "intelligence": { "proficient": false, "value": "+0" },
-    "wisdom": { "proficient": false, "value": "+0" },
-    "charisma": { "proficient": false, "value": "+0" }
-  },
-NOTE: For saving throws, calculate the value as:
-  - value = ability_modifier + (proficiency_bonus if proficient in that save)
-  - Example: WIS 16 (mod +3) with proficiency is "+5" (assuming +2 prof bonus at low level)
-  "cantrips": [
-    {
-      "name": "string (e.g., 'Fire Bolt')",
-      "level": "0",
-      "school": "string (e.g., 'Evocation')",
-      "castingTime": "string (e.g., '1 action')",
-      "range": "string (e.g., '120 feet')",
-      "duration": "string (e.g., 'Instantaneous')",
-      "description": "string (spell effects and details)",
-      "damage": "string (optional, e.g., '1d10 fire')",
-      "saveDC": "string (optional)",
-      "concentration": "boolean (true if requires concentration)",
-      "ritual": "boolean (true if can be cast as ritual)",
-      "components": "string (e.g., 'V, S' or 'V, S, M (a focus)')"
-    }
-  ],
-  "spells": [
-    {
-      "name": "string (e.g., 'Meteor Swarm')",
-      "level": "string (1-9)",
-      "school": "string (e.g., 'Evocation')",
-      "castingTime": "string (e.g., '1 action')",
-      "range": "string (e.g., '1 mile')",
-      "duration": "string (e.g., 'Instantaneous')",
-      "description": "string (spell effects and details)",
-      "damage": "string (optional, e.g., '20d6 fire')",
-      "saveDC": "string (optional, e.g., 'DEX 20')",
-      "concentration": "boolean (true if requires concentration)",
-      "ritual": "boolean (true if can be cast as ritual)",
-      "components": "string (e.g., 'V, S, M (a focus)')"
-    }
-  ],
-  "spellcastingAbility": "string (INT, WIS, or CHA based on class)",
-  "spellSaveDC": "string (e.g., '15')",
-  "spellAttackBonus": "string (with + or -)",
-  "cp": "0",
-  "sp": "0",
-  "ep": "0", 
-  "gp": "string",
-  "pp": "0"
-}
-
-Ensure mathematical accuracy (modifiers = (ability - 10) / 2, rounded down).
-For spellcasters, include all cantrips available at this level, plus a thematic selection of leveled spells that the character would reasonably prepare/know based on their class spell list and level.
-Include 4-6 important class and racial features in the features array, each with a clear description of what it does.
-Make personality traits, background, and story elements match the theme requested in the prompt.
-
-REMEMBER: If the user prompt contains "/" between class names, "and", or mentions multiple classes, generate MULTICLASS format.
-Example: "cleric 1/divine soul sorcerer 1" → Use MULTICLASS format with classes array
-Never combine multiple classes into one level!`);
-            formData.append('apiKey', finalApiKey);
-
-            const response = await fetch('/api/character', {
-                method: 'POST',
-                body: formData
-            });
-
-            if (!response.ok) {
-                throw new Error(`API request failed: ${response.status}`);
-            }
-
-            const data = await response.json();
-            const content = data.choices[0].message.content;
-
-            // Add logging here
-            console.log('AI Response:', content);
-
-            // Extract JSON from the response
-            const jsonMatch = content.match(/\{[\s\S]*\}/);
-            if (!jsonMatch) {
-                throw new Error('No valid JSON found in response');
-            }
-
-            const characterJson = JSON.parse(jsonMatch[0]);
-            
-            // Backward compatibility: convert old featuresAndTraits text to structured features
-            if (!characterJson.features || characterJson.features.length === 0) {
-                characterJson.features = [];
-                if (characterJson.featuresAndTraits && characterJson.featuresAndTraits.trim()) {
-                    // Try to split by common delimiters
-                    const featureTexts = characterJson.featuresAndTraits
-                        .split(/\n|;|\|(?=[A-Z])/)
-                        .filter((f: string) => f.trim().length > 0);
-                    
-                    featureTexts.forEach((text: string) => {
-                        const trimmed = text.trim();
-                        if (trimmed) {
-                            characterJson.features.push({
-                                name: trimmed.substring(0, Math.min(50, trimmed.indexOf(':') > 0 ? trimmed.indexOf(':') : trimmed.length)),
-                                description: trimmed,
-                                category: 'custom'
-                            });
-                        }
-                    });
-                }
-            }
-
-            // Ensure default values for new fields
-            if (!characterJson.raceDescription) characterJson.raceDescription = '';
-            if (!characterJson.classDescription) characterJson.classDescription = '';
-            if (!characterJson.subclassDescription) characterJson.subclassDescription = '';
-            
-            // Process cantrips and spells to add attackType and altDamage fields
-            if (characterJson.cantrips && Array.isArray(characterJson.cantrips)) {
-                characterJson.cantrips = characterJson.cantrips.map((cantrip: any) => {
-                    const spellConfig = getSpellAttackType(cantrip.name);
-                    return {
-                        ...cantrip,
-                        attackType: spellConfig.attackType,
-                        altDamage: hasVariableDamage(cantrip.name) ? 
-                            (spellConfig.variableDamage ? `1d${spellConfig.variableDamage[1]?.diceSides}` : undefined) 
-                            : undefined
-                    };
-                });
-            }
-
-            if (characterJson.spells && Array.isArray(characterJson.spells)) {
-                characterJson.spells = characterJson.spells.map((spell: any) => {
-                    const spellConfig = getSpellAttackType(spell.name);
-                    return {
-                        ...spell,
-                        attackType: spellConfig.attackType,
-                        altDamage: hasVariableDamage(spell.name) ? 
-                            (spellConfig.variableDamage ? `1d${spellConfig.variableDamage[1]?.diceSides}` : undefined) 
-                            : undefined
-                    };
-                });
-            }
-            
-            setCharacterData(characterJson);
-            setShowSheet(true);
-
-        } catch (error) {
-            console.error('Error generating character:', error);
-            alert(`Error generating character: ${error instanceof Error ? error.message : 'Unknown error'}`);
-        } finally {
-            setLoading(false);
-        }
-    };
-
-    const importFromJSON = (event: React.ChangeEvent<HTMLInputElement>) => {
-        const file = event.target.files?.[0];
-        if (!file) return;
-
-        const reader = new FileReader();
-        reader.onload = (e) => {
-            try {
-                const jsonData = JSON.parse(e.target?.result as string);
-
-                // Validate that it's a valid character data object
-                if (!jsonData.characterName) {
-                    throw new Error('Invalid character data: missing characterName field');
-                }
-
-                // Migrate old format to new format
-                const migratedData = migrateCharacterData(jsonData);
-
-                // Set the character data and show the sheet
-                setCharacterData(migratedData);
-                setShowSheet(true);
-                alert(`Successfully imported character: ${jsonData.characterName}`);
-            } catch (error) {
-                console.error('Error importing JSON:', error);
-                alert(`Failed to import character data: ${error instanceof Error ? error.message : 'Invalid JSON file'}`);
-            }
-        };
-        reader.readAsText(file);
-
-        // Reset file input so the same file can be imported again
-        if (fileInputRef.current) {
-            fileInputRef.current.value = '';
-        }
-    };
-
-
 
     return (
         <div className="max-w-4xl mx-auto p-6 bg-gradient-to-br from-gray-950 to-gray-900 min-h-screen">
@@ -577,89 +44,47 @@ Never combine multiple classes into one level!`);
                     Generate your next character with AI, then view and customize it in an interactive D&D Beyond-style sheet.
                 </p>
 
-                {/* API Key Input */}
-                <div className="mb-6">
-                    <label className="block text-sm font-medium text-orange-300 mb-2">
-                        OpenRouter API Key:
-                    </label>
-                    <div className="relative">
-                        <input
-                            type={showApiKey ? "text" : "password"}
-                            value={finalApiKey}
-                            onChange={(e) => setApiKey(e.target.value)}
-                            placeholder="sk-or-v1-..."
-                            className="w-full p-3 border border-orange-500 rounded-md bg-gray-800 text-orange-300 placeholder-gray-500 focus:ring-2 focus:ring-orange-400"
-                        />
+                <ApiKeyInput
+                    apiKey={finalApiKey}
+                    showApiKey={showApiKey}
+                    onApiKeyChange={setApiKey}
+                    onToggleVisibility={() => setShowApiKey(!showApiKey)}
+                />
 
-                        <button
-                            type="button"
-                            onClick={() => setShowApiKey(!showApiKey)}
-                            className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-orange-300 transition-colors"
-                        >
-                            {showApiKey ? <EyeOff size={20} /> : <Eye size={20} />}
-                        </button>
-                    </div>
-                    <p className="text-xs text-gray-400 mt-1">
-                        Get your API key from{" "}
-                        <a
-                            href="https://openrouter.ai/app/keys"
-                            className="text-orange-400 hover:underline"
-                            target="_blank"
-                            rel="noopener noreferrer"
-                        >
-                            openrouter.ai
-                        </a>
-                    </p>
-                </div>
-
-                {/* Character Prompt */}
-                <div className="mb-6">
-                    <label className="block text-sm font-medium text-orange-300 mb-2">
-                        Describe your character:
-                    </label>
-                    <textarea
-                        value={prompt}
-                        onChange={(e) => setPrompt(e.target.value)}
-                        placeholder="e.g., 'Make me a level 3 ranger with a mysterious background...' "
-                        className="w-full p-3 border border-orange-500 rounded-md bg-gray-800 text-orange-300 placeholder-gray-500 focus:ring-2 focus:ring-orange-400"
-                        rows={4}
+                {levelUpBaseCharacter && (
+                    <LevelUpIndicator
+                        characterName={levelUpBaseCharacter.characterName}
+                        onCancel={handleCancelLevelUp}
                     />
+                )}
 
-                    <div className="mt-4 flex gap-3">
-                        <button
-                            onClick={() => generateCharacterData(prompt)}
-                            disabled={loading || !prompt.trim()}
-                            className="flex-1 px-6 py-3 bg-orange-600 hover:bg-orange-700 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-md font-semibold flex items-center justify-center gap-2 transition-colors"
-                        >
-                            {loading ? (
-                                <>
-                                    <div className="animate-spin rounded-full h-5 w-5 border-2 border-white border-t-transparent"></div>
-                                    Generating Character...
-                                </>
-                            ) : (
-                                <>
-                                    <Wand2 size={20} />
-                                    Generate Character
-                                </>
-                            )}
-                        </button>
+                {clarification && (
+                    <ClarificationPanel
+                        clarification={clarification}
+                        clarificationText={clarificationText}
+                        loading={loading}
+                        onOptionSelect={(opt) => generateCharacterData(prompt, opt)}
+                        onTextChange={setClarificationText}
+                        onSubmit={() => {
+                            const answer = clarificationText.trim();
+                            if (answer) {
+                                generateCharacterData(prompt, answer);
+                                setClarificationText('');
+                            }
+                        }}
+                    />
+                )}
 
-                        <button
-                            onClick={() => fileInputRef.current?.click()}
-                            className="px-6 py-3 bg-gray-700 hover:bg-gray-600 text-white rounded-md font-semibold flex items-center justify-center gap-2 transition-colors"
-                        >
-                            <Upload size={20} />
-                            Import from JSON
-                        </button>
-                        <input
-                            ref={fileInputRef}
-                            type="file"
-                            accept=".json"
-                            onChange={importFromJSON}
-                            className="hidden"
-                        />
-                    </div>
-                </div>
+                <PromptInput
+                    prompt={prompt}
+                    isLevelUp={!!levelUpBaseCharacter}
+                    loading={loading}
+                    hasClarification={!!clarification}
+                    fileInputRef={fileInputRef}
+                    onPromptChange={setPrompt}
+                    onGenerate={() => generateCharacterData(prompt)}
+                    onImport={importFromJSON}
+                />
             </div>
         </div>
     );

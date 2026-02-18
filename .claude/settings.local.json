@@ -1,0 +1,18 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git stash pop:*)",
+      "Bash(npx tsc:*)",
+      "Bash(timeout 15 npx react-router dev:*)",
+      "Bash(Remove-Item \"E:\\\\dnd ai character creator\\\\app\\\\components\\\\AbilityScoreBox.tsx\" \"E:\\\\dnd ai character creator\\\\app\\\\components\\\\SavingThrowSection.tsx\" \"E:\\\\dnd ai character creator\\\\app\\\\components\\\\SkillRow.tsx\" \"E:\\\\dnd ai character creator\\\\app\\\\components\\\\AttackEntry.tsx\")",
+      "Bash(dir:*)",
+      "WebFetch(domain:docs.owlbear.app)",
+      "WebFetch(domain:docs.owlbear.rodeo)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:blog.owlbear.rodeo)",
+      "Bash(npm install:*)",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "WebFetch(domain:extensions.owlbear.rodeo)"
+    ]
+  }
+}
