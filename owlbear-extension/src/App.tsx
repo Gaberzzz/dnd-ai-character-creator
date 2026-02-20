@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { useRollBridge } from "./useRollBridge";
 
-const DEFAULT_SERVER = "http://localhost:5173";
+const DEFAULT_SERVER = "";
 const STORAGE_KEY = "dnd-roll-bridge-server-url";
 
 const TYPE_COLORS: Record<string, string> = {

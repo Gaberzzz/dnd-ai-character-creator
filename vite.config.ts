@@ -8,6 +8,10 @@ export default defineConfig({
   base: "/",
   plugins: [tailwindcss(), reactRouter(), tsconfigPaths()],
   server: {
+    cors: true,
+    headers: {
+      "Access-Control-Allow-Origin": "*",
+    },
     fs: {
       allow: [
         // Allow serving from the worktree itself

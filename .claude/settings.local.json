@@ -12,7 +12,9 @@
       "WebFetch(domain:blog.owlbear.rodeo)",
       "Bash(npm install:*)",
       "WebFetch(domain:raw.githubusercontent.com)",
-      "WebFetch(domain:extensions.owlbear.rodeo)"
+      "WebFetch(domain:extensions.owlbear.rodeo)",
+      "Bash(npm info:*)",
+      "Bash(npm run build:*)"
     ]
   }
 }
