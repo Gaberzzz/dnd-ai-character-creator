@@ -44,6 +44,7 @@ export interface CharacterData {
   currentHitPoints: string;
   temporaryHitPoints: string;
   hitDice: string;
+  spentHitDice?: { [dieSides: string]: number };
   proficiencyBonus: string;
   personalityTraits: string;
   ideals: string;
@@ -74,6 +75,7 @@ export interface CharacterData {
     components?: string;
     attackType?: 'attack' | 'save' | 'auto-hit' | 'none';
     altDamage?: string;
+    higherLevels?: string;
   }>;
   spells: Array<{
     name: string;
@@ -90,10 +92,12 @@ export interface CharacterData {
     components?: string;
     attackType?: 'attack' | 'save' | 'auto-hit' | 'none';
     altDamage?: string;
+    higherLevels?: string;
   }>;
   spellcastingAbility: string;
   spellSaveDC: string;
   spellAttackBonus: string;
+  usedSpellSlots?: { [level: string]: number };
   cp: string;
   sp: string;
   ep: string;

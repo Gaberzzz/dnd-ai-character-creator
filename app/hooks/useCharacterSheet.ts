@@ -5,6 +5,9 @@ import {
   calculateTotalLevel,
   normalizeCharacterData,
   getSpellcastingAbilityScore,
+  getHitDiceByClass,
+  CLASS_HIT_DICE,
+  calculateSpellSlots,
 } from '~/utils/characterUtils';
 import {
   rollAbilityCheck,
@@ -258,6 +261,52 @@ export function useCharacterSheet(initialCharacter: CharacterData) {
     setHpAdjustAmount('');
   };
 
+  const handleLongRest = () => {
+    setCharacter(prev => ({
+      ...prev,
+      currentHitPoints: prev.hitPointMaximum,
+      temporaryHitPoints: '0',
+      spentHitDice: {},
+      usedSpellSlots: {},
+    }));
+  };
+
+  // key: "1"-"9" for regular spell levels, "warlock" for Pact Magic
+  const handleSpellSlotChange = (key: string, delta: number) => {
+    const { slots, warlockSlots } = calculateSpellSlots(character);
+    const total = key === 'warlock'
+      ? (warlockSlots?.count ?? 0)
+      : (slots[(parseInt(key) || 1) - 1] ?? 0);
+    setCharacter(prev => {
+      const current = (prev.usedSpellSlots || {})[key] || 0;
+      const next = Math.max(0, Math.min(total, current + delta));
+      return { ...prev, usedSpellSlots: { ...(prev.usedSpellSlots || {}), [key]: next } };
+    });
+  };
+
+  const handleSpendHitDie = (dieSides: number) => {
+    const spent = character.spentHitDice || {};
+    const spentForDie = spent[String(dieSides)] || 0;
+    const classes = character.classes && character.classes.length > 0
+      ? character.classes
+      : character.class ? [{ name: character.class, level: parseInt(character.level ?? '') || 1 }] : [];
+    const total = classes
+      .filter(cls => CLASS_HIT_DICE[cls.name.toLowerCase().trim()] === dieSides)
+      .reduce((sum, cls) => sum + cls.level, 0);
+    if (spentForDie >= total) return;
+
+    const conMod = abilityModifiers.constitution;
+    const result = rollHealing('Hit Die', `1d${dieSides}`, conMod);
+    addRoll(result);
+    const currentHP = parseInt(character.currentHitPoints) || 0;
+    const maxHP = parseInt(character.hitPointMaximum) || 0;
+    setCharacter(prev => ({
+      ...prev,
+      currentHitPoints: Math.min(currentHP + result.total, maxHP).toString(),
+      spentHitDice: { ...prev.spentHitDice, [String(dieSides)]: spentForDie + 1 },
+    }));
+  };
+
   // Export / import
   const exportToPDF = async () => {
     try {
@@ -402,6 +451,9 @@ export function useCharacterSheet(initialCharacter: CharacterData) {
     handleClearHistory,
     handleApplyHealing,
     handleApplyDamage,
+    handleLongRest,
+    handleSpendHitDie,
+    handleSpellSlotChange,
     exportToPDF,
     exportToJSON,
     importFromJSON,

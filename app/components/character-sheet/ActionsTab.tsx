@@ -253,6 +253,16 @@ export default function ActionsTab({
                     placeholder="Description"
                     className={`w-full text-xs min-h-20 ${inputBase}`}
                   />
+                  <textarea
+                    value={cantrip.higherLevels || ''}
+                    onChange={(e) => {
+                      const newCantrips = [...character.cantrips];
+                      newCantrips[idx] = { ...newCantrips[idx], higherLevels: e.target.value };
+                      handleCharacterChange('cantrips', newCantrips);
+                    }}
+                    placeholder="Cantrip Scaling (damage at 5th, 11th, 17th level)"
+                    className={`w-full text-xs min-h-12 ${inputBase}`}
+                  />
                 </div>
               ))}
             </div>
@@ -295,6 +305,7 @@ export default function ActionsTab({
                     healingFormula={healingFormula}
                     appliesModifier={healingInfo.appliesModifier}
                     onRollHealing={handleRollHealing}
+                    higherLevels={cantrip.higherLevels}
                     editable={false}
                   />
                 );

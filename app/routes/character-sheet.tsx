@@ -1,9 +1,9 @@
-import { RollHistoryPanel } from '~/components/RollHistoryPanel';
 import { useCharacterSheet } from '~/hooks/useCharacterSheet';
 import CharacterSheetHeader from '~/components/character-sheet/CharacterSheetHeader';
 import CombatStatsBar from '~/components/character-sheet/CombatStatsBar';
 import LeftStatsPanel from '~/components/character-sheet/LeftStatsPanel';
-import SkillsAndSavesPanel from '~/components/character-sheet/SkillsAndSavesPanel';
+import MentalStatsPanel from '~/components/character-sheet/MentalStatsPanel';
+import RollHistoryInlinePanel from '~/components/character-sheet/RollHistoryInlinePanel';
 import ActionsTab from '~/components/character-sheet/ActionsTab';
 import SpellsTab from '~/components/character-sheet/SpellsTab';
 import InventoryTab from '~/components/character-sheet/InventoryTab';
@@ -44,6 +44,7 @@ export default function CharacterSheet({ character: initialCharacter, onBack, on
               exportToJSON={sheet.exportToJSON}
               importFromJSON={sheet.importFromJSON}
               handleCharacterChange={sheet.handleCharacterChange}
+              handleLongRest={sheet.handleLongRest}
             />
             <CombatStatsBar
               character={sheet.character}
@@ -66,8 +67,8 @@ export default function CharacterSheet({ character: initialCharacter, onBack, on
       {/* Main Content */}
       <div className="max-w-7xl mx-auto px-6 py-6">
         <div className="grid grid-cols-12 gap-6">
-          {/* Left Column */}
-          <div className="col-span-3">
+          {/* Left Column — STR / DEX / CON + stats */}
+          <div className="col-span-2">
             <LeftStatsPanel
               character={sheet.character}
               isEditing={sheet.isEditing}
@@ -75,16 +76,23 @@ export default function CharacterSheet({ character: initialCharacter, onBack, on
               proficiencyBonus={sheet.proficiencyBonus}
               handleCharacterChange={sheet.handleCharacterChange}
               handleRollAbilityCheck={sheet.handleRollAbilityCheck}
+              handleSkillChange={sheet.handleSkillChange}
+              handleRollSkillCheck={sheet.handleRollSkillCheck}
+              handleSavingThrowChange={sheet.handleSavingThrowChange}
+              handleRollSavingThrow={sheet.handleRollSavingThrow}
               parseModifier={sheet.parseModifier}
+              handleSpendHitDie={sheet.handleSpendHitDie}
             />
           </div>
 
-          {/* Center Column */}
-          <div className="col-span-3">
-            <SkillsAndSavesPanel
+          {/* Center Column — INT / WIS / CHA */}
+          <div className="col-span-2">
+            <MentalStatsPanel
               character={sheet.character}
               isEditing={sheet.isEditing}
-              sortedSkills={sheet.sortedSkills}
+              abilityModifiers={sheet.abilityModifiers}
+              handleCharacterChange={sheet.handleCharacterChange}
+              handleRollAbilityCheck={sheet.handleRollAbilityCheck}
               handleSkillChange={sheet.handleSkillChange}
               handleRollSkillCheck={sheet.handleRollSkillCheck}
               handleSavingThrowChange={sheet.handleSavingThrowChange}
@@ -92,19 +100,20 @@ export default function CharacterSheet({ character: initialCharacter, onBack, on
             />
           </div>
 
+
+
           {/* Right Column — Tabs */}
-          <div className="col-span-6 space-y-4">
-            <div className={`${cardBg} rounded-lg shadow-lg ${cardBorder}`}>
-              {/* Tab bar */}
-              <div className={`border-b ${divider}`}>
+          <div className="col-span-5">
+            <div className={`${cardBg} rounded-lg shadow-lg ${cardBorder} flex flex-col`} style={{ height: '80vh', minHeight: '400px' }}>
+              {/* Tab bar — pinned */}
+              <div className={`border-b ${divider} flex-shrink-0`}>
                 <div className="flex">
                   {TABS.map((tab) => (
                     <button
                       key={tab}
                       onClick={() => sheet.setActiveTab(tab)}
-                      className={`px-6 py-3 text-sm font-medium capitalize transition-colors ${
-                        sheet.activeTab === tab ? tabActive : tabInactive
-                      }`}
+                      className={`px-6 py-3 text-sm font-medium capitalize transition-colors ${sheet.activeTab === tab ? tabActive : tabInactive
+                        }`}
                     >
                       {tab}
                     </button>
@@ -112,8 +121,8 @@ export default function CharacterSheet({ character: initialCharacter, onBack, on
                 </div>
               </div>
 
-              {/* Tab content */}
-              <div className="p-6">
+              {/* Tab content — scrollable */}
+              <div className="p-6 overflow-y-auto flex-1">
                 {sheet.activeTab === 'actions' && (
                   <ActionsTab
                     character={sheet.character}
@@ -144,6 +153,7 @@ export default function CharacterSheet({ character: initialCharacter, onBack, on
                     handleRollAttack={sheet.handleRollAttack}
                     handleRollDamage={sheet.handleRollDamage}
                     handleRollHealing={sheet.handleRollHealing}
+                    handleSpellSlotChange={sheet.handleSpellSlotChange}
                   />
                 )}
                 {sheet.activeTab === 'inventory' && (
@@ -175,16 +185,17 @@ export default function CharacterSheet({ character: initialCharacter, onBack, on
               </div>
             </div>
           </div>
+          {/* Roll History — inline rightmost panel */}
+          <div className="col-span-3">
+            <RollHistoryInlinePanel
+              rolls={sheet.combinedRolls}
+              onClearHistory={sheet.handleClearHistory}
+              addRoll={sheet.addRoll}
+            />
+          </div>
         </div>
       </div>
 
-      {/* Roll History Panel */}
-      <RollHistoryPanel
-        rolls={sheet.combinedRolls}
-        minimized={sheet.historyMinimized}
-        onToggleMinimize={() => sheet.setHistoryMinimized(!sheet.historyMinimized)}
-        onClearHistory={sheet.handleClearHistory}
-      />
     </div>
   );
 }

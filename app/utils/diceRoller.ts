@@ -319,6 +319,43 @@ export function rollHealing(
 }
 
 /**
+ * Roll a custom dice formula like "2d6+3", "d20", "1d8-1"
+ * Returns null if the formula is invalid.
+ */
+export function rollCustomFormula(formula: string): RollResult | null {
+  const normalized = formula.replace(/\s/g, '').toLowerCase();
+  // Match optional count + d + sides + optional modifier: e.g. 2d6+3, d20, 1d8-1
+  const match = normalized.match(/^(\d*)d(\d+)([+-]\d+)?$/);
+  if (!match) return null;
+
+  const diceCount = match[1] === '' ? 1 : parseInt(match[1], 10);
+  const diceSides = parseInt(match[2], 10);
+  const modifier = match[3] ? parseInt(match[3], 10) : 0;
+
+  if (diceCount < 1 || diceCount > 100 || diceSides < 2 || diceSides > 1000) return null;
+
+  const rolls = Array.from({ length: diceCount }, () => Math.floor(Math.random() * diceSides) + 1);
+  const rollTotal = rolls.reduce((sum, r) => sum + r, 0);
+  const total = rollTotal + modifier;
+
+  const rollsBreakdown = rolls.length === 1 ? `${rolls[0]}` : rolls.join(' + ');
+  const modifierPart = modifier > 0 ? ` + ${modifier}` : modifier < 0 ? ` - ${Math.abs(modifier)}` : '';
+  const displayFormula = `${diceCount === 1 ? '' : diceCount}d${diceSides}${modifier >= 0 && match[3] ? '+' + modifier : modifier < 0 ? modifier : ''}`;
+
+  return {
+    id: generateId(),
+    type: 'custom',
+    name: formula.trim(),
+    formula: displayFormula,
+    rolls,
+    modifier,
+    total,
+    breakdown: `[${rollsBreakdown}]${modifierPart} = ${total}`,
+    timestamp: new Date(),
+  };
+}
+
+/**
  * Generate a unique ID for a roll result
  */
 function generateId(): string {

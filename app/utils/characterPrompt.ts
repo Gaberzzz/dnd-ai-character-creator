@@ -137,7 +137,8 @@ NOTE: For saving throws, calculate the value as:
       "saveDC": "string (optional)",
       "concentration": "boolean (true if requires concentration)",
       "ritual": "boolean (true if can be cast as ritual)",
-      "components": "string (e.g., 'V, S' or 'V, S, M (a focus)')"
+      "components": "string (e.g., 'V, S' or 'V, S, M (a focus)')",
+      "higherLevels": "string (optional - cantrip damage scaling at 5th, 11th, and 17th level, e.g., 'This spell\\'s damage increases when you reach certain levels. At 5th level, the attack deals an extra 1d10 fire damage (2d10). The damage increases again at 11th level (3d10) and 17th level (4d10).')"
     }
   ],
   "spells": [
@@ -153,7 +154,8 @@ NOTE: For saving throws, calculate the value as:
       "saveDC": "string (optional, e.g., 'DEX 20')",
       "concentration": "boolean (true if requires concentration)",
       "ritual": "boolean (true if can be cast as ritual)",
-      "components": "string (e.g., 'V, S, M (a focus)')"
+      "components": "string (e.g., 'V, S, M (a focus)')",
+      "higherLevels": "string (optional - upcast effects, e.g., 'At Higher Levels. When you cast this spell using a spell slot of 2nd level or higher, the extra damage increases by 1d6 for each slot level above 1st.')"
     }
   ],
   "spellcastingAbility": "string (INT, WIS, or CHA based on class)",

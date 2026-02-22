@@ -1,4 +1,5 @@
-import { Download, Edit2, Save, X, Upload } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { Download, Edit2, Save, X, Upload, Moon } from 'lucide-react';
 import type { CharacterData } from '~/types/character';
 import { getClassDisplayText, parseClassDisplayString, calculateTotalLevel } from '~/utils/characterUtils';
 import { headingText, subHeadingText, labelText, inputBase, inputAccent, btnPrimary, btnSecondary } from '~/utils/theme';
@@ -18,6 +19,7 @@ interface CharacterSheetHeaderProps {
   exportToJSON: () => void;
   importFromJSON: (event: React.ChangeEvent<HTMLInputElement>) => void;
   handleCharacterChange: (key: keyof CharacterData, value: any) => void;
+  handleLongRest: () => void;
 }
 
 export default function CharacterSheetHeader({
@@ -34,20 +36,39 @@ export default function CharacterSheetHeader({
   exportToJSON,
   importFromJSON,
   handleCharacterChange,
+  handleLongRest,
 }: CharacterSheetHeaderProps) {
+  const [classInputText, setClassInputText] = useState(() => getClassDisplayText(character));
+
+  useEffect(() => {
+    if (isEditing) {
+      setClassInputText(getClassDisplayText(character));
+    }
+  }, [isEditing]);
+
   return (
     <div>
-      {isEditing ? (
-        <input
-          type="text"
-          value={character.characterName}
-          onChange={(e) => handleCharacterChange('characterName', e.target.value)}
-          className={`text-3xl font-bold mb-1 w-full ${inputAccent}`}
-          placeholder="Character Name"
-        />
-      ) : (
-        <h1 className={`text-3xl font-bold mb-1 ${headingText}`}>{character.characterName}</h1>
-      )}
+      <div className="flex items-center gap-2">
+        {isEditing ? (
+          <input
+            type="text"
+            value={character.characterName}
+            onChange={(e) => handleCharacterChange('characterName', e.target.value)}
+            className={`text-3xl font-bold mb-1 w-full ${inputAccent}`}
+            placeholder="Character Name"
+          />
+        ) : (
+          <h1 className={`text-3xl font-bold mb-1 ${headingText}`}>{character.characterName}</h1>
+        )}
+
+        <button
+          onClick={handleLongRest}
+          className={btnSecondary}
+          title="Long Rest: restore HP, hit dice, and remove temp HP"
+        >
+          <Moon size={16} className="inline mr-1" />
+        </button>
+      </div>
 
       {isEditing ? (
         <div className="space-y-2">
@@ -68,24 +89,24 @@ export default function CharacterSheetHeader({
               <label className={`text-xs block mb-1 ${labelText}`}>Class</label>
               <input
                 type="text"
-                value={getClassDisplayText(character)}
-                onChange={(e) => {
-                  const raw = e.target.value;
-                  const parsed = parseClassDisplayString(raw);
+                value={classInputText}
+                onChange={(e) => setClassInputText(e.target.value)}
+                onBlur={() => {
+                  const parsed = parseClassDisplayString(classInputText);
                   if (parsed.length === 0) {
                     setCharacter({
                       ...character,
                       classes: [{ name: '', subclass: '', level: 1, description: character.classes?.[0]?.description ?? '' }],
                     });
-                    return;
+                  } else {
+                    setCharacter({
+                      ...character,
+                      classes: parsed.map((p, i) => ({
+                        ...p,
+                        description: character.classes?.[i]?.description ?? '',
+                      })),
+                    });
                   }
-                  setCharacter({
-                    ...character,
-                    classes: parsed.map((p, i) => ({
-                      ...p,
-                      description: character.classes?.[i]?.description ?? '',
-                    })),
-                  });
                 }}
                 className={`w-full text-sm font-medium ${inputBase}`}
                 placeholder="e.g. Fighter 3 or Wizard (Evocation) 2 / Fighter 1"
@@ -127,6 +148,7 @@ export default function CharacterSheetHeader({
               <Edit2 size={16} className="inline mr-1" />
               Edit
             </button>
+           
             <div className="flex items-center gap-2">
               <select
                 value={pdfVersion}
